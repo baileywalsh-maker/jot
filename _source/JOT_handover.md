@@ -17,7 +17,7 @@ Add file → Upload files → drag everything in → Commit (see `UPDATING.md`).
 No commands, no build. Data lives on the phone, so updating never touches it.
 Moving to a new address = back up on the old one, restore on the new one.
 
-**Current version: v34.** The version lives on line 1 of `sw.js` as
+**Current version: v35.** The version lives on line 1 of `sw.js` as
 `const CACHE = 'jot-vNN'`.
 
 I also have other apps built the same way (COACH, Ledger). Same rules apply.
@@ -194,6 +194,27 @@ it (tests folder included, never `node_modules` or `.netlify`).
 
 ---
 
+## Sync with Muse — v35 (19 Nov 2026)
+
+Jot can now sync notes with Muse. **Off by default** — Bailey switches it on
+in Settings → Sync with Muse. Full design + Muse's instructions:
+`_source/SYNC.md`. Short version:
+- Notes sync to ONE file, `jot-sync.json`, in a **private** repo
+  `baileywalsh-maker/jot-sync` (Bailey creates it — Muse's GitHub App cannot
+  create repos). The public jot repo never holds notes, backups or tokens.
+- The phone uses a fine-grained token Bailey pastes in Settings. It lives
+  only on the phone, never in a backup, never in code.
+- Only notes, subcategories, tags and "buy again" sync. Locked notes, hours,
+  jobs and invoices never sync.
+- Merge is three-way by note id against the last good sync; a note changed
+  on both sides keeps the newer copy and Settings says so.
+- Muse adds/deletes notes by editing `jot-sync.json` in the private repo
+  (see SYNC.md for the exact steps). The phone pulls it in on open and
+  pushes changes ~8s after an edit, or on Sync now.
+- Tests: `node tests/run.mjs sync` (27 checks, fake GitHub). Full suite:
+  206 passed.
+
 ## Still open
 
-**Jot** — nothing outstanding.
+**Jot** — Ledger and Coach sync next, only after Jot sync is proved on
+Bailey's phone. Same pattern, separate private repos.

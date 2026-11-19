@@ -1111,10 +1111,25 @@
   <button class="btn soft" id="open-export">Export notes</button>
 
   <label class="lab">Keep it safe</label>
-  <p class="sub" style="margin-bottom:0;">Everything lives only on this phone. Tap <b>Back up to Files</b>, choose <b>Save to Files</b>, pick the same folder each time and tap <b>Replace</b>. Then there is only ever one up-to-date copy.</p>
+  <p class="sub" style="margin-bottom:0;">Everything lives only on this phone, unless you switch on Sync with Muse below. Tap <b>Back up to Files</b>, choose <b>Save to Files</b>, pick the same folder each time and tap <b>Replace</b>. Then there is only ever one up-to-date copy.</p>
   <div class="grid2">
     <button class="btn soft" id="bk">Back up to Files</button>
     <button class="btn soft" id="rs">Restore</button>
+  </div>
+
+  <label class="lab">Sync with Muse</label>
+  <p class="sub" style="margin-top:0;">Let Muse add or delete notes for you. Off until you switch it on. Notes sync to a private place only you and Muse can see — never to this public app. Locked notes, hours and invoices never sync.</p>
+  <div class="card">
+    <div class="li"><div class="grow">Sync with Muse<div class="small" id="sync-state">Off</div></div><label class="toggle"><input type="checkbox" id="t-sync"><span></span></label></div>
+  </div>
+  <div id="sync-setup" style="display:none;">
+    <label class="lab">Sync token</label>
+    <input class="field" type="password" id="sync-token" placeholder="Paste your GitHub token here" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <p class="sub">Make a token in GitHub that can only read and write the private jot-sync repo. It stays on this phone — it is never sent anywhere except GitHub, and never backed up.</p>
+    <div class="grid2">
+      <button class="btn soft" id="sync-now">Sync now</button>
+      <button class="btn soft" id="sync-forget">Remove token</button>
+    </div>
   </div>
   <input type="file" id="rs-file" accept="application/json,.json" style="display:none;">
   <p class="sub" id="bk-note" style="margin-top:10px;"></p>
@@ -1210,7 +1225,11 @@
 const K = { notes:'jot:notes', tags:'jot:tags', kinds:'jot:kinds', prefs:'jot:prefs', again:'jot:again' };
 let storeWarned = false;
 function lsSet(k, v){
-  try{ localStorage.setItem(k, JSON.stringify(v)); return true; }
+  try{
+    if(k === K.notes){ try{ syncStampUpd(v); }catch(e){} }
+    localStorage.setItem(k, JSON.stringify(v));
+    if(k === K.notes){ try{ syncSoon(); }catch(e){} }
+    return true; }
   catch(e){
     if(!storeWarned){ storeWarned = true; setTimeout(()=>toast('Your phone would not save that — storage is full.'), 30); }
     return false;
@@ -4419,7 +4438,7 @@ function paintMore(){
   $('t-sound').checked = !!prefs.sound;
   $('t-haptic').checked = !!prefs.haptic;
   $('t-shortcut').checked = !!prefs.shortcut;
-  paintPush();
+  paintPush(); paintSync();
   if(prefs.pushHelper === undefined) helperHere().then(r=>{ if(r !== null && $('more').classList.contains('on')) paintPush(); });
   $('sc-state').textContent = prefs.shortcut
     ? 'Using your Jot Reminder shortcut'
@@ -4540,6 +4559,354 @@ $('rs-file').onchange = e=>{
   };
   r.readAsText(f); e.target.value = '';
 };
+
+// =====================================================================
+// Sync with Muse — v35. Opt-in, off by default.
+// ---------------------------------------------------------------------
+// How it works: your notes are copied to ONE file, jot-sync.json, in a
+// PRIVATE repo (baileywalsh-maker/jot-sync) that only you can see.
+// Muse reads and writes that same file. Your phone and Muse never talk
+// to each other directly — the private repo is the meeting point.
+// - Locked notes (the vault) NEVER sync. Hours, jobs and invoices
+//   NEVER sync. Only notes, subcategories, tags and "buy again" do.
+// - The token that lets this phone write to the private repo is typed
+//   in by you in Settings. It lives ONLY in this phone's storage
+//   ('jot:sync-token'), is never written into a backup, never put in
+//   the app's code, and is only ever sent to api.github.com.
+//   Make it a fine-grained token that can only read/write the
+//   jot-sync repo, and revoke it in GitHub any time to stop syncing.
+// - Merge: each side remembers what the notes looked like at the last
+//   successful sync (a snapshot). A note changed on one side only is
+//   taken from that side; a note added on either side is kept; a note
+//   deleted on one side and unchanged on the other is deleted. A note
+//   changed on BOTH sides keeps the newer copy, and Settings says so.
+//   Nothing is ever deleted silently without that rule.
+// =====================================================================
+const SYNC_OWNER = 'baileywalsh-maker';
+const SYNC_REPO = 'jot-sync';
+const SYNC_PATH = 'jot-sync.json';
+const SYNC_API = 'https://api.github.com/repos/' + SYNC_OWNER + '/' + SYNC_REPO + '/contents/' + SYNC_PATH;
+const SYNC_KEY = 'jot:sync';          // sync state (snapshot, version) — not a backup
+const SYNC_TOKEN_KEY = 'jot:sync-token'; // the token — never in a backup, never in code
+let syncBusy = false, syncSoonTimer = null, syncApplying = false;
+let _updPrev = null;   // id -> hash of each note, for stamping upd on change
+
+function syncHash(s){
+  let h = 5381;
+  s = String(s);
+  for(let i = 0; i < s.length; i++){ h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; }
+  return h.toString(36);
+}
+function syncNoteHash(n){ return syncHash(JSON.stringify(n)); }
+function syncState(){
+  const s = lsGet(SYNC_KEY, null);
+  return s && typeof s === 'object' ? s : {version:0, sha:null, snapshot:null, lastSync:null, lastError:null, conflicts:[]};
+}
+function syncSaveState(s){ lsSet(SYNC_KEY, s); }
+function syncToken(){ try{ return localStorage.getItem(SYNC_TOKEN_KEY) ? JSON.parse(localStorage.getItem(SYNC_TOKEN_KEY)) : null; }catch(e){ return null; } }
+function syncSetToken(t){
+  try{
+    if(t) localStorage.setItem(SYNC_TOKEN_KEY, JSON.stringify(t));
+    else localStorage.removeItem(SYNC_TOKEN_KEY);
+    return true;
+  }catch(e){ return false; }
+}
+function syncSnapOf(pack){
+  const snap = {notes:{}, kinds:'', tags:'', again:'', custom:''};
+  (pack.notes || []).forEach(n=>{ if(n && n.id) snap.notes[n.id] = syncNoteHash(n); });
+  snap.kinds = syncHash(JSON.stringify(pack.kinds || {}));
+  snap.tags = syncHash(JSON.stringify(pack.tags || []));
+  snap.again = syncHash(JSON.stringify(pack.again || {}));
+  snap.custom = syncHash(JSON.stringify(pack.custom || {}));
+  return snap;
+}
+function syncCustomFromPrefs(){
+  return {
+    customTypes: customTypes(),
+    typeName: prefs.typeName || {},
+    typeColour: prefs.typeColour || {},
+    kindColour: prefs.kindColour || {}
+  };
+}
+function syncPackLocal(){
+  const st = syncState();
+  return {
+    __jotSync: 1, version: (st.version || 0) + 1,
+    updatedAt: new Date().toISOString(), updatedBy: 'phone',
+    notes: notes, kinds: kindMap, tags: tags, again: again,
+    custom: syncCustomFromPrefs()
+  };
+}
+// Every note change is stamped with when it changed, so a note edited on
+// both sides can keep the newer copy. Stamping happens here, in the one
+// place every note write passes through — not in each button handler.
+function syncStampUpd(v){
+  if(syncApplying || !Array.isArray(v)) return;
+  if(!_updPrev){ _updPrev = {}; v.forEach(n=>{ if(n && n.id) _updPrev[n.id] = syncNoteHash(n); }); return; }
+  const now = Date.now();
+  v.forEach(n=>{
+    if(!n || !n.id) return;
+    const h = syncNoteHash(n);
+    if(_updPrev[n.id] !== h){ n.upd = now; _updPrev[n.id] = syncNoteHash(n); }
+  });
+  Object.keys(_updPrev).forEach(id=>{ if(!v.some(n=>n && n.id === id)) delete _updPrev[id]; });
+}
+function syncUnionList(a, b){
+  const out = (a || []).slice();
+  (b || []).forEach(x=>{ if(out.indexOf(x) < 0) out.push(x); });
+  return out;
+}
+function syncMergeKinds(local, remote){
+  const out = {};
+  const cats = {};
+  Object.keys(local || {}).forEach(c=>{ cats[c] = 1; });
+  Object.keys(remote || {}).forEach(c=>{ cats[c] = 1; });
+  Object.keys(cats).forEach(c=>{ out[c] = syncUnionList(local[c], remote[c]); });
+  return out;
+}
+// Three-way merge: local (this phone) vs remote (the private repo),
+// against the snapshot from the last good sync. Returns {pack, conflicts}.
+function syncMerge(local, remote, snap){
+  snap = snap || {notes:{}, kinds:'', tags:'', again:'', custom:''};
+  const conflicts = [];
+  const byId = {};
+  (local.notes || []).forEach(n=>{ if(n && n.id) (byId[n.id] = byId[n.id] || {}).local = n; });
+  (remote.notes || []).forEach(n=>{ if(n && n.id) (byId[n.id] = byId[n.id] || {}).remote = n; });
+  const merged = [];
+  Object.keys(byId).forEach(id=>{
+    const e = byId[id], inSnap = snap.notes && snap.notes[id];
+    const lHash = e.local ? syncNoteHash(e.local) : null;
+    const rHash = e.remote ? syncNoteHash(e.remote) : null;
+    if(e.local && !e.remote){
+      if(!inSnap){ merged.push(e.local); return; }                       // added here
+      if(lHash !== inSnap){ merged.push(e.local); conflicts.push('Kept your newer copy of “' + String(e.local.text || '').slice(0, 40) + '” — it was deleted in the synced copy.'); return; }
+      return;                                                            // deleted over there, unchanged here
+    }
+    if(e.remote && !e.local){
+      if(!inSnap){ merged.push(e.remote); return; }                      // added over there
+      if(rHash !== inSnap){ merged.push(e.remote); conflicts.push('Kept the synced copy of “' + String(e.remote.text || '').slice(0, 40) + '” — it was deleted on this phone.'); return; }
+      return;                                                            // deleted here, unchanged over there
+    }
+    if(lHash === rHash){ merged.push(e.local); return; }
+    const lChanged = inSnap && lHash !== inSnap, rChanged = inSnap && rHash !== inSnap;
+    if(lChanged && !rChanged){ merged.push(e.local); return; }
+    if(rChanged && !lChanged){ merged.push(e.remote); return; }
+    if(!inSnap){ merged.push(e.local); return; }                         // both added it: same id, keep this phone's
+    const lUpd = (e.local.upd || e.local.ts || 0), rUpd = (e.remote.upd || e.remote.ts || 0);
+    const pick = rUpd > lUpd ? e.remote : e.local;
+    merged.push(pick);
+    conflicts.push('“' + String(pick.text || '').slice(0, 40) + '” was changed in both places — kept the newer copy.');
+  });
+  merged.sort((a, b)=> (b.ts || 0) - (a.ts || 0));
+  const again = {};
+  Object.keys(local.again || {}).forEach(k=>{ again[k] = local.again[k]; });
+  Object.keys(remote.again || {}).forEach(k=>{
+    if(!again[k] || (remote.again[k].t || 0) > (again[k].t || 0)) again[k] = remote.again[k];
+  });
+  const custom = {};
+  const lc = local.custom || {}, rc = remote.custom || {};
+  custom.customTypes = syncUnionList((lc.customTypes || []).map(c=>c && c.id), (rc.customTypes || []).map(c=>c && c.id))
+    .map(id=> (rc.customTypes || []).find(c=>c && c.id === id) || (lc.customTypes || []).find(c=>c && c.id === id))
+    .filter(Boolean);
+  ['typeName', 'typeColour', 'kindColour'].forEach(k=>{
+    custom[k] = Object.assign({}, lc[k] || {}, rc[k] || {});
+  });
+  return {
+    pack: {
+      __jotSync: 1, version: Math.max(local.version || 0, remote.version || 0) + 1,
+      updatedAt: new Date().toISOString(), updatedBy: 'phone',
+      notes: merged, kinds: syncMergeKinds(local.kinds, remote.kinds),
+      tags: syncUnionList(local.tags, remote.tags), again: again, custom: custom
+    },
+    conflicts: conflicts
+  };
+}
+function syncApply(pack){
+  syncApplying = true;
+  try{
+    notes = Array.isArray(pack.notes) ? pack.notes : notes;
+    if(pack.kinds && typeof pack.kinds === 'object'){ kindMap = pack.kinds; tags = kindMap.idea || []; saveKinds(); }
+    if(Array.isArray(pack.tags) && pack.tags.length){ tags = pack.tags; }
+    if(pack.again && typeof pack.again === 'object') again = pack.again;
+    if(pack.custom){
+      if(Array.isArray(pack.custom.customTypes)){
+        prefs.customTypes = pack.custom.customTypes;
+        customTypes().forEach(registerCustom);
+      }
+      ['typeName', 'typeColour', 'kindColour'].forEach(k=>{ if(pack.custom[k]) prefs[k] = pack.custom[k]; });
+      lsSet(K.prefs, prefs);
+    }
+    lsSet(K.notes, notes); lsSet(K.tags, tags); lsSet(K.again, again);
+    _updPrev = {}; notes.forEach(n=>{ if(n && n.id) _updPrev[n.id] = syncNoteHash(n); });
+  }finally{ syncApplying = false; }
+}
+async function syncFetch(token){
+  let r;
+  try{
+    r = await fetch(SYNC_API, {headers:{'Authorization':'Bearer ' + token, 'Accept':'application/vnd.github+json'}, cache:'no-store'});
+  }catch(e){ const err = new Error('offline'); err.code = 'offline'; throw err; }
+  if(r.status === 404) return {pack:null, sha:null};
+  if(r.status === 401 || r.status === 403){ const err = new Error('auth'); err.code = 'auth'; throw err; }
+  if(!r.ok){ const err = new Error('http ' + r.status); err.code = 'http'; throw err; }
+  const d = await r.json();
+  let pack = null;
+  try{ pack = JSON.parse(decodeURIComponent(escape(atob(String(d.content || '').replace(/\n/g, ''))))); }catch(e){ pack = null; }
+  if(!pack || pack.__jotSync !== 1){ const err = new Error('bad file'); err.code = 'badfile'; throw err; }
+  return {pack: pack, sha: d.sha};
+}
+async function syncPut(token, pack, sha){
+  const body = {message:'Jot sync v' + pack.version + ' (' + pack.updatedBy + ')',
+    content:btoa(unescape(encodeURIComponent(JSON.stringify(pack))))};
+  if(sha) body.sha = sha;
+  let r;
+  try{
+    r = await fetch(SYNC_API, {method:'PUT', headers:{'Authorization':'Bearer ' + token, 'Accept':'application/vnd.github+json', 'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  }catch(e){ const err = new Error('offline'); err.code = 'offline'; throw err; }
+  if(r.status === 401 || r.status === 403){ const err = new Error('auth'); err.code = 'auth'; throw err; }
+  if(r.status === 409){ const err = new Error('conflict'); err.code = 'conflict'; throw err; }
+  if(!r.ok){ const err = new Error('http ' + r.status); err.code = 'http'; throw err; }
+  const d = await r.json();
+  return d.content && d.content.sha ? d.content.sha : sha;
+}
+function syncSnapEqual(a, b){
+  if(!a || !b) return false;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+function syncLocalChanged(st){
+  if(!st.snapshot) return true;
+  const cur = syncSnapOf(syncPackLocal());
+  if(cur.kinds !== st.snapshot.kinds || cur.tags !== st.snapshot.tags ||
+     cur.again !== st.snapshot.again || cur.custom !== st.snapshot.custom) return true;
+  const ids = {};
+  Object.keys(cur.notes).forEach(id=>{ ids[id] = 1; });
+  Object.keys(st.snapshot.notes).forEach(id=>{ ids[id] = 1; });
+  return Object.keys(ids).some(id=> cur.notes[id] !== st.snapshot.notes[id]);
+}
+function syncStatusText(){
+  const st = syncState();
+  if(!prefs.syncEnabled) return 'Off — switch it on to let Muse help with your notes';
+  if(!syncToken()) return 'On, but no token yet — paste one below';
+  if(st.lastError) return 'Last sync failed: ' + st.lastError;
+  if(st.lastSync){
+    const d = Math.floor((Date.now() - new Date(st.lastSync).getTime()) / 60000);
+    const when = d < 1 ? 'just now' : d < 60 ? d + ' min ago' : Math.floor(d / 60) + 'h ago';
+    return 'Last synced ' + when + (st.conflicts && st.conflicts.length ? ' — ' + st.conflicts.length + ' note' + (st.conflicts.length > 1 ? 's' : '') + ' changed in both places, kept the newer copy' : '');
+  }
+  return 'On — not synced yet';
+}
+function paintSync(){
+  const t = $('t-sync'); if(!t) return;
+  t.checked = !!prefs.syncEnabled;
+  $('sync-setup').style.display = prefs.syncEnabled ? '' : 'none';
+  const tok = $('sync-token'); if(tok && document.activeElement !== tok) tok.value = syncToken() || '';
+  $('sync-state').textContent = syncStatusText();
+}
+// The main sync. Quiet when automatic (opening the app, leaving it);
+// chatty when you tap Sync now. Returns a small result for tests.
+async function syncNow(opts){
+  opts = opts || {};
+  if(syncBusy) return {ok:false, reason:'busy'};
+  if(!prefs.syncEnabled) return {ok:false, reason:'off'};
+  const token = syncToken();
+  if(!token){
+    if(!opts.quiet){ feel('error'); toast('Add your sync token in Settings first'); }
+    return {ok:false, reason:'notoken'};
+  }
+  syncBusy = true;
+  if($('sync-state')) $('sync-state').textContent = 'Syncing…';
+  try{
+    const st = syncState();
+    let fetched;
+    try{ fetched = await syncFetch(token); }
+    catch(e){
+      st.lastError = e.code === 'auth' ? 'GitHub did not accept the token — check it, or make a new one'
+        : e.code === 'offline' ? 'No connection — try again when you are back online'
+        : 'GitHub said no (' + e.message + ')';
+      syncSaveState(st); paintSync();
+      if(!opts.quiet){ feel('error'); toast(st.lastError); }
+      return {ok:false, reason:e.code};
+    }
+    const local = syncPackLocal();
+    if(!fetched.pack){
+      // First sync ever: this phone's notes become the synced copy.
+      const sha = await syncPut(token, local, null);
+      const ns = {version:local.version, sha:sha, snapshot:syncSnapOf(local), lastSync:new Date().toISOString(), lastError:null, conflicts:[]};
+      syncSaveState(ns); paintSync(); render();
+      if(!opts.quiet){ feel('done'); toast('Synced — ' + local.notes.length + ' notes now shared with Muse'); }
+      return {ok:true, pushed:local.notes.length, pulled:0, conflicts:[]};
+    }
+    const remote = fetched.pack;
+    const localChanged = syncLocalChanged(st);
+    // Changed remotely if the remote copy no longer matches the snapshot —
+    // version numbers alone are not trusted, Muse may write any version.
+    const remoteChanged = !st.snapshot || !syncSnapEqual(syncSnapOf(remote), st.snapshot);
+    if(!localChanged && !remoteChanged){
+      st.lastSync = new Date().toISOString(); st.lastError = null; syncSaveState(st); paintSync();
+      if(!opts.quiet) toast('Already up to date');
+      return {ok:true, pushed:0, pulled:0, conflicts:[]};
+    }
+    let merged = syncMerge(local, remote, st.snapshot);
+    let sha = fetched.sha, tries = 0;
+    while(tries < 2){
+      try{ sha = await syncPut(token, merged.pack, sha); break; }
+      catch(e){
+        if(e.code !== 'conflict' || tries) throw e;
+        tries++;
+        const again = await syncFetch(token);
+        if(!again.pack) throw e;
+        merged = syncMerge(syncPackLocal(), again.pack, st.snapshot);
+        sha = again.sha;
+      }
+    }
+    const before = notes.length;
+    syncApply(merged.pack);
+    const ns = {version:merged.pack.version, sha:sha, snapshot:syncSnapOf(merged.pack),
+      lastSync:new Date().toISOString(), lastError:null, conflicts:merged.conflicts};
+    syncSaveState(ns); paintSync(); render();
+    const pulled = merged.pack.notes.length - before;
+    if(!opts.quiet){
+      feel('done');
+      toast(merged.conflicts.length ? 'Synced — kept the newer copy of ' + merged.conflicts.length + ' note' + (merged.conflicts.length > 1 ? 's' : '') + ' changed in both places'
+        : pulled > 0 ? 'Synced — ' + pulled + ' note' + (pulled > 1 ? 's' : '') + ' came in from Muse'
+        : 'Synced');
+    }
+    return {ok:true, pushed:localChanged ? 1 : 0, pulled:pulled, conflicts:merged.conflicts};
+  }catch(e){
+    const st = syncState();
+    st.lastError = e.code === 'auth' ? 'GitHub did not accept the token — check it, or make a new one'
+      : e.code === 'offline' ? 'No connection — try again when you are back online'
+      : 'Sync failed (' + (e.message || 'unknown') + ')';
+    syncSaveState(st); paintSync();
+    if(!opts.quiet){ feel('error'); toast(st.lastError); }
+    return {ok:false, reason:e.code || 'error'};
+  }finally{ syncBusy = false; }
+}
+function syncSoon(){
+  if(!prefs.syncEnabled || !syncToken()) return;
+  clearTimeout(syncSoonTimer);
+  syncSoonTimer = setTimeout(()=>{ syncNow({auto:true, quiet:true}); }, 8000);
+}
+// Settings wiring for sync. Runs at load; the Settings sheet exists by then.
+$('t-sync').onchange = e=>{
+  prefs.syncEnabled = e.target.checked; lsSet(K.prefs, prefs); feel('select'); paintSync();
+  if(prefs.syncEnabled && !syncToken()) toast('Paste your sync token below, then tap Sync now');
+  else if(prefs.syncEnabled) syncNow({auto:true, quiet:true});
+};
+$('sync-token').onchange = e=>{
+  const v = e.target.value.trim();
+  if(v){ syncSetToken(v); toast('Token saved — it stays on this phone'); }
+  else syncSetToken(null);
+  paintSync();
+};
+$('sync-now').onclick = ()=>{ feel('tap'); syncNow({manual:true}); };
+$('sync-forget').onclick = async ()=>{
+  if(!(await ask('Remove the sync token?', 'Sync switches off too. Your notes stay on this phone.', 'Remove', true))) return;
+  syncSetToken(null); prefs.syncEnabled = false; lsSet(K.prefs, prefs);
+  const st = syncState(); st.lastError = null; syncSaveState(st);
+  paintSync(); toast('Sync is off and the token is gone');
+};
+// For tests and for Muse's own checks — not a user feature.
+window.__jotSync = {now:syncNow, merge:syncMerge, pack:syncPackLocal, state:syncState, apply:syncApply};
 
 // ---------- capture box ----------
 const cap = $('cap');
@@ -4668,6 +5035,7 @@ setInterval(dayWatch, 60000);
 
 render(); grow(); hgrow();
 setTimeout(maybeSundayBackup, 900);   // let the app settle before asking
+setTimeout(()=>{ if(prefs.syncEnabled) syncNow({auto:true, quiet:true}); }, 2000);   // pull in anything Muse added, if sync is on
 
 // Came in by tapping a notification?
 (function(){

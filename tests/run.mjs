@@ -795,6 +795,141 @@ const SUITES = {
     } else ok(false, 'Restoring that backup brings every note back');
     ok(o.errs.length === 0, 'No JS errors ' + o.errs.join(' | '));
     await o.ctx.close();
+  },
+
+  // ------------------------------------------------------------------
+  async sync() {
+    // A pretend GitHub for the private jot-sync repo. The app talks to
+    // api.github.com; everything else is served from localhost as usual.
+    const gh = { pack: null, sha: 'sha-1', puts: [], failAuth: false };
+    const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64');
+    const unb64 = s => JSON.parse(Buffer.from(s, 'base64').toString('utf8'));
+    async function openSync({ notes = [], prefs = {}, remote = null, token = 'test-token' } = {}) {
+      gh.pack = remote; gh.sha = 'sha-1'; gh.puts = []; gh.failAuth = false;
+      const ctx = await browser.newContext({ ...devices['iPhone 13'], viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+      const pg = await ctx.newPage();
+      const errs = []; pg.on('pageerror', e => errs.push(e.message));
+      const html = fs.readFileSync(path.join(APP, 'index.html'), 'utf8');
+      await pg.route('**/*', r => {
+        const u = new URL(r.request().url());
+        if (u.hostname === 'api.github.com') {
+          if (r.request().method() === 'OPTIONS') return r.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, accept' }, body: '' });
+          if (gh.failAuth) return r.fulfill({ status: 401, headers: { 'access-control-allow-origin': '*' }, contentType: 'application/json', body: '{"message":"Bad credentials"}' });
+          if (r.request().method() === 'GET') {
+            if (!gh.pack) return r.fulfill({ status: 404, headers: { 'access-control-allow-origin': '*' }, contentType: 'application/json', body: '{"message":"Not Found"}' });
+            return r.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*' }, contentType: 'application/json', body: JSON.stringify({ sha: gh.sha, content: b64(gh.pack) }) });
+          }
+          if (r.request().method() === 'PUT') {
+            const body = JSON.parse(r.request().postData());
+            gh.puts.push({ auth: r.request().headers().authorization, body });
+            if (body.sha && body.sha !== gh.sha) return r.fulfill({ status: 409, headers: { 'access-control-allow-origin': '*' }, contentType: 'application/json', body: '{"message":"conflict"}' });
+            gh.pack = unb64(body.content); gh.sha = 'sha-' + (gh.puts.length + 1);
+            return r.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*' }, contentType: 'application/json', body: JSON.stringify({ content: { sha: gh.sha } }) });
+          }
+          return r.fulfill({ status: 405, body: '' });
+        }
+        if (u.hostname !== 'localhost') return r.abort();
+        if (u.pathname === '/') return r.fulfill({ body: html, contentType: 'text/html' });
+        const f = path.join(APP, u.pathname);
+        if (!fs.existsSync(f)) return r.fulfill({ status: 404, contentType: 'text/html', body: '<h1>404</h1>' });
+        return r.fulfill({ path: f });
+      });
+      await pg.addInitScript(({ notes, prefs, token }) => {
+        localStorage.clear();
+        localStorage.setItem('jot:notes', JSON.stringify(notes));
+        localStorage.setItem('jot:kinds', JSON.stringify({ shopping: [], todo: [], remember: [], question: [], idea: [] }));
+        localStorage.setItem('jot:prefs', JSON.stringify(prefs));
+        if (token) localStorage.setItem('jot:sync-token', JSON.stringify(token));
+      }, { notes, prefs, token });
+      await pg.goto('http://localhost/');
+      await pg.waitForTimeout(500);
+      const q = (f, a) => pg.evaluate(f, a);
+      const saved = () => pg.evaluate(() => JSON.parse(localStorage.getItem('jot:notes')));
+      return { pg, ctx, errs, q, saved };
+    }
+    const now = Date.now();
+    const local1 = { id: 'a1', text: 'Milk', type: 'shopping', done: false, ts: now };
+    const museNote = { id: 'm1', text: 'Buy oat milk — from Muse', type: 'shopping', done: false, ts: now - 1000 };
+    const remotePack = { __jotSync: 1, version: 5, updatedAt: new Date().toISOString(), updatedBy: 'muse', notes: [museNote], kinds: {}, tags: [], again: {}, custom: {} };
+
+    // Off by default: Settings shows the sync section, switched off.
+    let o = await openSync({ notes: [local1], prefs: { lastBackup: today } });
+    await o.pg.click('#h-more'); await o.pg.waitForTimeout(400);
+    ok(await o.q(() => !!document.getElementById('t-sync')), 'Settings has a Sync with Muse switch');
+    ok(await o.q(() => !document.getElementById('t-sync').checked), 'Sync is off by default');
+    ok(await o.q(() => document.getElementById('sync-state').textContent.indexOf('Off') === 0), 'Status says Off');
+    ok(await o.q(() => document.getElementById('sync-setup').style.display === 'none'), 'Token box hidden while off');
+    ok(o.errs.length === 0, 'No JS errors with sync off ' + o.errs.join(' | '));
+    await o.ctx.close();
+
+    // On, with a remote note from Muse: opening the app pulls it in and
+    // pushes this phone's note up, merged — nothing lost either way.
+    o = await openSync({ notes: [local1], prefs: { lastBackup: today, syncEnabled: true }, remote: remotePack });
+    await o.pg.waitForTimeout(3500);   // auto-sync on open (2s) + round trip
+    let got = await o.saved();
+    ok(got.some(x => x.id === 'm1'), 'A note Muse added appears in Jot after opening');
+    ok(got.some(x => x.id === 'a1'), 'This phone’s note is still there after the merge');
+    ok(gh.puts.length >= 1, 'The merged copy was pushed back to the private repo');
+    const lastPut = gh.puts.length ? unb64(gh.puts[gh.puts.length - 1].body.content) : null;
+    ok(lastPut && lastPut.__jotSync === 1 && lastPut.notes.some(x => x.id === 'm1') && lastPut.notes.some(x => x.id === 'a1'), 'Pushed file has both notes');
+    ok(lastPut && !('vault' in lastPut) && !('jobs' in lastPut), 'Synced file has no vault and no hours');
+    ok(gh.puts.every(p => p.auth === 'Bearer test-token'), 'Every sync call carries the token, nothing else');
+    ok(gh.puts.every(p => JSON.stringify(p.body).indexOf('test-token') < 0 || JSON.stringify(p.body.content || '').indexOf('test-token') < 0), 'The token is never written into the synced file');
+    ok(await o.q(() => document.getElementById('sync-state').textContent.indexOf('Last synced') === 0), 'Status shows Last synced');
+    ok(o.errs.length === 0, 'No JS errors after auto-sync ' + o.errs.join(' | '));
+
+    // A note added on the phone reaches the repo on Sync now.
+    await o.q(() => { addText('todo', 'Call dentist'); });
+    await o.q(() => window.__jotSync.now({ manual: true }));
+    await o.pg.waitForTimeout(600);
+    ok(gh.pack.notes.some(x => x.text === 'Call dentist'), 'A note added on the phone is in the repo after Sync now');
+
+    // Deleting on the phone deletes in the repo — but only because the
+    // remote copy had not changed it.
+    await o.q(() => { notes = notes.filter(n => n.id !== 'a1'); lsSet(K.notes, notes); render(); });
+    await o.q(() => window.__jotSync.now({ manual: true }));
+    await o.pg.waitForTimeout(600);
+    ok(!gh.pack.notes.some(x => x.id === 'a1'), 'A note deleted on the phone is gone from the repo too');
+    ok(gh.pack.notes.some(x => x.id === 'm1'), 'Deleting one note does not take the others with it');
+
+    // Merge rules, as pure function checks (no network).
+    // Changed on one side only: that side wins.
+    const merged = (await o.q(() => {
+      const h = n => { let x = 5381; const s = JSON.stringify(n); for (let i = 0; i < s.length; i++) x = ((x << 5) + x + s.charCodeAt(i)) >>> 0; return x.toString(36); };
+      const loc = { __jotSync: 1, version: 2, notes: [{ id: 'x1', text: 'One edited here', type: 'todo', done: false, ts: 100, upd: 500 }, { id: 'x2', text: 'Two', type: 'todo', done: false, ts: 200 }], kinds: {}, tags: [], again: {}, custom: {} };
+      const rem = { __jotSync: 1, version: 3, notes: [{ id: 'x1', text: 'One', type: 'todo', done: false, ts: 100 }, { id: 'x2', text: 'Two edited there', type: 'todo', done: false, ts: 200, upd: 600 }], kinds: {}, tags: [], again: {}, custom: {} };
+      const sn = { notes: { x1: h({ id: 'x1', text: 'One', type: 'todo', done: false, ts: 100 }), x2: h({ id: 'x2', text: 'Two', type: 'todo', done: false, ts: 200 }) }, kinds: '', tags: '', again: '', custom: '' };
+      return window.__jotSync.merge(loc, rem, sn);
+    }));
+    ok(merged.pack.notes.find(n => n.id === 'x1').text === 'One edited here', 'Note changed only on the phone keeps the phone copy');
+    ok(merged.pack.notes.find(n => n.id === 'x2').text === 'Two edited there', 'Note changed only remotely keeps the remote copy');
+    const both = (await o.q(() => {
+      const loc = { __jotSync: 1, version: 2, notes: [{ id: 'x1', text: 'Older edit', type: 'todo', done: false, ts: 100, upd: 500 }], kinds: {}, tags: [], again: {}, custom: {} };
+      const rem = { __jotSync: 1, version: 3, notes: [{ id: 'x1', text: 'Newer edit', type: 'todo', done: false, ts: 100, upd: 900 }], kinds: {}, tags: [], again: {}, custom: {} };
+      const sn = { notes: {}, kinds: '', tags: '', again: '', custom: '' };
+      // snapshot with the original hash, so both sides count as changed
+      const h = n => { let x = 5381; const s = JSON.stringify(n); for (let i = 0; i < s.length; i++) x = ((x << 5) + x + s.charCodeAt(i)) >>> 0; return x.toString(36); };
+      sn.notes = { x1: h({ id: 'x1', text: 'Original', type: 'todo', done: false, ts: 100 }) };
+      return window.__jotSync.merge(loc, rem, sn);
+    }));
+    ok(both.pack.notes[0].text === 'Newer edit', 'Same note changed both ways keeps the newer copy');
+    ok(both.conflicts.length === 1, 'Both-ways change is reported as a conflict, not hidden');
+
+    // A bad token fails cleanly and says so in Settings.
+    await o.q(() => { localStorage.setItem('jot:sync-token', JSON.stringify('wrong-token')); });
+    gh.failAuth = true;
+    const res = await o.q(() => window.__jotSync.now({ manual: true }));
+    ok(res && res.ok === false && res.reason === 'auth', 'A rejected token returns auth, not a crash');
+    ok(await o.q(() => document.getElementById('sync-state').textContent.indexOf('did not accept the token') >= 0), 'Settings says the token was not accepted');
+    ok((await o.saved()).some(x => x.id === 'm1'), 'A failed sync never wipes local notes');
+    ok(o.errs.length === 0, 'No JS errors after a failed sync ' + o.errs.join(' | '));
+    await o.ctx.close();
+
+    // The token is never in a backup file.
+    o = await openSync({ notes: [local1], prefs: { lastBackup: today, syncEnabled: true }, remote: remotePack });
+    ok(await o.q(() => backupText().indexOf('test-token') < 0), 'Backup file never contains the token');
+    ok(await o.q(() => backupText().indexOf('jot:sync-token') < 0), 'Backup file never mentions the token key');
+    await o.ctx.close();
   }
 };
 
