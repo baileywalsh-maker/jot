@@ -1125,7 +1125,7 @@
 <div class="sheet" id="guide">
   <div class="grab"><div class="bar"></div></div>
   <h2>Getting reminded</h2>
-  <p class="sub">Jot can buzz your phone itself. Turn on <b>Notifications</b> in Settings once, and every note with <b>Remind me</b> set pings you at that time, even with Jot closed.</p>
+  <p class="sub">Jot can buzz your phone itself. Turn on <b>Notifications</b> in Settings once, and every note with <b>Remind me</b> set pings you at that time, even with Jot closed. (This needs Jot's notification helper running where Jot is hosted. If Settings says it's not available, use the Calendar way below.)</p>
 
   <label class="lab">Notifications</label>
   <ol class="steps">
@@ -1982,7 +1982,9 @@ function renderSheetView(body){
 // due. It only ever gets a note id and a time; the words are kept here, in a
 // small store the background part of Jot (sw.js) reads when the buzz arrives.
 // =====================================================================
-const PUSH_API = '/api/push/';
+// Relative, so it follows Jot wherever it's hosted. Where nothing answers
+// (e.g. GitHub Pages, plain files only) notifications say they're unavailable.
+const PUSH_API = 'api/push/';
 const K_DEVICE = 'jot:device', K_PUSHSIG = 'jot:pushsig';
 const BELL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0"/></svg>';
 function deviceId(){
@@ -1996,6 +1998,7 @@ function deviceId(){
 const isStandalone = ()=> (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
 function pushState(){
   if(!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return 'unsupported';
+  if(prefs.pushHelper === false) return 'nohelper';
   if(Notification.permission === 'denied') return 'denied';
   return prefs.push && Notification.permission === 'granted' ? 'on' : 'off';
 }
@@ -2063,8 +2066,16 @@ function b64uBytes(s){
   return Uint8Array.from(atob((s + p).replace(/-/g,'+').replace(/_/g,'/')), c=>c.charCodeAt(0));
 }
 // Called straight from the tap on the switch: iPhone only asks from a tap.
+async function helperHere(){
+  try{
+    const r = await fetch(PUSH_API + 'key', {cache:'no-store'});
+    const ok = r.ok && /json/.test(r.headers.get('content-type') || '') && !!(await r.json()).key;
+    prefs.pushHelper = ok; lsSet(K.prefs, prefs); return ok;
+  }catch(e){ return null; }   // offline: don't decide
+}
 async function enablePush(){
   const st = pushState();
+  if(st === 'nohelper'){ feel('error'); toast('Notifications aren\'t running on this version of Jot'); helperHere().then(()=>{ if($('more').classList.contains('on')) paintMore(); }); return false; }
   if(st === 'unsupported'){ feel('error'); toast(isStandalone() ? 'This iPhone needs iOS 16.4 or newer for notifications' : 'Open Jot from its home-screen icon to turn this on'); return false; }
   let perm = 'default';
   try{ perm = await Notification.requestPermission(); }catch(e){}
@@ -2105,6 +2116,7 @@ function paintPush(){
     st === 'on' ? 'On — Jot buzzes your phone when a reminder is due' :
     st === 'denied' ? 'Blocked — allow it in iPhone Settings → Notifications → Jot' :
     st === 'unsupported' ? (isStandalone() ? 'Needs iOS 16.4 or newer' : 'Open Jot from its home-screen icon to turn this on') :
+    st === 'nohelper' ? 'Not available here — use Remind me on my phone (Calendar) instead' :
     'Off — tap to get a buzz when a reminder is due';
   $('push-test').style.display = st === 'on' ? 'flex' : 'none';
 }
@@ -2118,6 +2130,7 @@ function paintPushNote(){
   const p = x => String(x).padStart(2,'0');
   const when = DAYS[at.getDay()].slice(0,3)+' '+at.getDate()+' '+MON[at.getMonth()]+', '+p(at.getHours())+':'+p(at.getMinutes());
   const on = pushState() === 'on';
+  if(pushState() === 'nohelper'){ el.classList.remove('on'); return; }
   el.className = 'pushnote on' + (on ? '' : ' off');
   el.innerHTML = BELL + (at.getTime() < Date.now() - 60000 ? 'That time has passed — no buzz'
     : on ? 'Jot will buzz you '+when : 'Would buzz '+when+' — turn on Notifications in Settings');
@@ -3162,13 +3175,22 @@ async function bioCreate(){
 }
 // Step 2: lock a copy of the code to it (a second look).
 async function bioFinish(cred, pass){
+  bioMovedNote = false;
   const salt = b64e(rnd(32));
   const k = await bioSecret(cred, salt);
   const m = vaultMeta(); if(!m) return false;
-  lsSet(K_VAULT, {...m, bio:{cred, salt, pin: await seal(k, pass)}});
+  lsSet(K_VAULT, {...m, bio:{cred, salt, pin: await seal(k, pass), host: location.host}});
   return true;
 }
 function bioOff(){ const m = vaultMeta(); if(m && m.bio){ const {bio, ...rest} = m; lsSet(K_VAULT, rest); } }
+// A Face ID passkey only works on the web address it was made on. One made
+// before Jot moved (or before addresses were recorded) is switched off, and
+// the locked screen says so once.
+let bioMovedNote = false;
+function bioCheckAddress(){
+  const m = vaultMeta();
+  if(m && m.bio && m.bio.host !== location.host){ bioOff(); bioMovedNote = true; }
+}
 async function bioUnlock(){
   const m = vaultMeta(); if(!m || !m.bio || bioBusy) return false;
   bioBusy = true;
@@ -3226,6 +3248,7 @@ const GEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
 const FACE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 012-2h2M16 4h2a2 2 0 012 2v2M20 16v2a2 2 0 01-2 2h-2M8 20H6a2 2 0 01-2-2v-2"/><path d="M9 9.5v1M15 9.5v1M12 9.5v3.5h-1M9.5 16c1.4 1 3.6 1 5 0"/></svg>';
 
 function renderVault(){
+  bioCheckAddress();
   const body = $('v-body');
   const m = vaultMeta();
 
@@ -3283,6 +3306,7 @@ function renderVault(){
     body.innerHTML =
       '<p class="sub">'+(n ? n+' item'+(n===1?'':'s')+' in here.' : 'Nothing in here yet.')+' It locks itself whenever you leave Jot.</p>'+
       (m.bio ? '<button class="btn row2" id="v-face">'+FACE+'Unlock with Face ID</button>' : '')+
+      (bioMovedNote ? '<div class="warnbox" style="margin-top:10px;"><b style="color:var(--cream)">Face ID needs turning on again.</b> Jot is on a new web address, and Face ID only works where it was set up. Unlock with your code, then tap the settings button → Face ID.</div>' : '')+
       (left ? '<div class="warnbox"><b>Too many wrong tries.</b><br>Try again in <span id="v-wait">'+left+'</span> seconds.</div>' : '')+
       '<div id="v-pinwrap"></div>'+
       '<button class="linkbtn" id="v-forgot">Forgot your code?</button>'+
@@ -4396,6 +4420,7 @@ function paintMore(){
   $('t-haptic').checked = !!prefs.haptic;
   $('t-shortcut').checked = !!prefs.shortcut;
   paintPush();
+  if(prefs.pushHelper === undefined) helperHere().then(r=>{ if(r !== null && $('more').classList.contains('on')) paintPush(); });
   $('sc-state').textContent = prefs.shortcut
     ? 'Using your Jot Reminder shortcut'
     : 'Off — reminders go to your Calendar, which works with no setup';
@@ -4451,7 +4476,7 @@ document.addEventListener('visibilitychange', async ()=>{
 // date it was taken is inside the file. The locked section goes in still
 // scrambled, so the file cannot be read without the passcode either.
 function backupText(){
-  return JSON.stringify({__jot:5, exported:new Date().toISOString(), origin:location.origin, notes, tags, kinds:kindMap, again, prefs, vault:vaultMeta(), jobs, shifts, sheets});
+  return JSON.stringify({__jot:5, exported:new Date().toISOString(), notes, tags, kinds:kindMap, again, prefs, vault:vaultMeta(), jobs, shifts, sheets});
 }
 function markBackedUp(){ prefs.lastBackup = today(); lsSet(K.prefs,prefs); paintMore(); render(); }
 function downloadBackup(text){
@@ -4503,26 +4528,11 @@ $('rs-file').onchange = e=>{
       if(d.kinds && typeof d.kinds === 'object'){ kindMap = d.kinds; tags = kindMap.idea || []; saveKinds(); }
       else if(Array.isArray(d.tags) && d.tags.length){ kindMap.idea = d.tags; tags = d.tags; saveKinds(); }
       if(d.again && typeof d.again === 'object') again = d.again;
-      // Face ID is tied to the web address it was set up on. Restored somewhere
-      // else (or from a backup that doesn't say where it came from), it is
-      // switched off so the code is asked for; turn Face ID on again in Locked.
-      if(d.vault && d.vault.salt){
-        const v = Object.assign({}, d.vault);
-        if(v.bio && d.origin !== location.origin) delete v.bio;
-        lsSet(K_VAULT, v);
-      }
+      if(d.vault && d.vault.salt) lsSet(K_VAULT, d.vault);
       if(Array.isArray(d.jobs)) jobs = d.jobs;
       if(Array.isArray(d.shifts)) shifts = d.shifts;
       if(Array.isArray(d.sheets)) sheets = d.sheets;
       if(d.prefs && typeof d.prefs === 'object'){ ['me','tsNo','invNo'].forEach(k=>{ if(d.prefs[k] !== undefined) prefs[k] = d.prefs[k]; }); lsSet(K.prefs, prefs); }
-      // v34: the small settings too, so moving Jot to a new web address
-      // (which starts empty) comes back exactly as it was. Notifications and
-      // Face ID are tied to the old address, so they are switched on again by hand.
-      if(d.prefs && typeof d.prefs === 'object'){
-        ['sound','haptic','folded','vaultLayout','lastType','lastKind','shortcut','bkAsked'].forEach(k=>{ if(d.prefs[k] !== undefined) prefs[k] = d.prefs[k]; });
-        if(prefs.vaultLayout === 'big' || prefs.vaultLayout === 'grid') vaultLayout = prefs.vaultLayout;
-        lsSet(K.prefs, prefs);
-      }
       saveHours();
       lsSet(K.notes,notes); lsSet(K.tags,tags); lsSet(K.again,again);
       feel('done'); paintMore(); render(); toast('Restored '+notes.length+' items');
