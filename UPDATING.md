@@ -2,12 +2,18 @@
 
 Jot is plain files now — no build, no commands.
 
+**Normal way (from Nov 2026):** Claude pushes changes straight to this repo.
+GitHub Pages updates in about a minute. On your iPhone, open Jot and close it
+once — the next open is the new version. Nothing to download or upload.
+
+**Rolling back:** ask Claude to undo the last change — every version is kept
+in this repo's history.
+
+**Manual fallback** (only if Claude can't reach GitHub):
 1. Unzip the new version on your laptop.
 2. Open your Jot repository on github.com.
-3. **Add file → Upload files**, drag in everything from the zip
-   (`index.html`, `sw.js`, `manifest.json`, the icons, the `tests` folder).
-4. Click **Commit changes**. GitHub Pages updates in about a minute.
-5. On your iPhone, open Jot and close it once — the next open is the new version.
+3. **Add file → Upload files**, drag in everything from the zip.
+4. Click **Commit changes**.
 
 Your notes are stored on your phone, not in GitHub, so updating never touches them.
 
