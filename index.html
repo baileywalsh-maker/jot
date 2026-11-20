@@ -589,6 +589,33 @@
   .wk-d b{display:block; font-family:var(--round); font-size:16px; margin-top:3px; font-variant-numeric:tabular-nums;}
   .wk-d.off b{color:var(--text3);} .wk-d.now{border-color:var(--cream);}
   .wk-bars{display:flex; gap:2px; justify-content:center; margin-top:5px; height:4px;} .wk-bars i{width:12px; border-radius:2px;}
+  #hours{min-height:calc(100dvh - env(safe-area-inset-top) - 18px);}
+  .ht-tabs{display:flex; background:var(--card); border-radius:13px; padding:3px; margin:2px 0 16px;}
+  .ht-tabs button{flex:1; background:none; border:none; color:var(--text3); font:inherit; font-size:14px; font-weight:700; padding:9px 0; border-radius:10px; display:flex; align-items:center; justify-content:center; gap:5px;}
+  .ht-tabs button.on{background:var(--card3); color:var(--text);}
+  .ht-tabs i{font-style:normal; font-size:11px; min-width:18px; height:18px; line-height:18px; border-radius:9px; background:var(--cream); color:#17140f; padding:0 5px; font-weight:800;}
+  .hw-head{display:flex; align-items:flex-end; justify-content:space-between; gap:10px; margin-bottom:14px;}
+  .hw-head small{display:block; font-size:13px; color:var(--text3); font-weight:600;}
+  .hw-head b{display:block; font-family:var(--round); font-size:30px; line-height:1.15; font-variant-numeric:tabular-nums;}
+  .hw-head em{display:block; font-style:normal; font-family:var(--round); font-size:18px; font-weight:800; color:var(--text2); font-variant-numeric:tabular-nums;}
+  .hw-nav{display:flex; gap:6px;} .hw-nav .ibtn{width:38px; height:38px; border-radius:11px; background:var(--card); border:none;} .hw-nav .ibtn:disabled{opacity:.3;}
+  .hw-chart{display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:8px; margin-bottom:8px;}
+  .hw-day{background:none; border:none; padding:0; font:inherit; color:var(--text); display:flex; flex-direction:column; align-items:stretch; gap:6px;}
+  .hw-day b{font-family:var(--round); font-size:13px; font-weight:800; text-align:center; height:16px; font-variant-numeric:tabular-nums;}
+  .hw-col{height:96px; display:flex; flex-direction:column-reverse; gap:2px;}
+  .hw-col i{display:block; border-radius:5px; min-height:6px;}
+  .hw-col .none{height:4px; min-height:0; background:var(--line2); border-radius:3px;}
+  .hw-day small{font-size:11.5px; font-weight:700; color:var(--text3); text-align:center;}
+  .hw-day.now small{color:var(--cream);}
+  .hw-jobs{margin:14px 0 16px;}
+  .hw-row{display:flex; align-items:center; gap:12px; padding:13px 0; box-shadow:inset 0 1px 0 var(--line);}
+  .hw-row .dot{width:10px; height:10px; border-radius:50%; flex-shrink:0;}
+  .hw-row .g{flex:1; min-width:0; background:none; border:none; padding:0; text-align:left; font:inherit; color:var(--text);}
+  .hw-row .g b{display:block; font-size:15.5px;} .hw-row .g span{font-size:13px; color:var(--text3);}
+  .hw-send{font:inherit; font-size:13.5px; font-weight:800; background:var(--cream); color:#17140f; border:none; border-radius:999px; padding:9px 15px; flex-shrink:0;}
+  .ht-jobhead{display:flex; align-items:center; gap:10px; margin-bottom:2px;}
+  .ht-jobhead .dot{width:10px; height:10px; border-radius:50%;} .ht-jobhead b{flex:1; font-size:16px;}
+  .ht-empty{padding:30px 10px; text-align:center; color:var(--text3); font-size:14px;}
   .hr-card{padding:12px 14px 4px;}
   .hr-tot{display:flex; align-items:baseline; justify-content:space-between;} .hr-tot b{font-family:var(--round); font-size:28px;} .hr-tot span{font-family:var(--round); font-size:20px; font-weight:800; color:var(--text2);}
   .hr-sub{font-size:13px; color:var(--text3); margin:2px 0 4px;}
@@ -620,7 +647,7 @@
   @media print{
     body{background:#fff !important; padding:0 !important;}
     body > *:not(#hours){display:none !important;}
-    #hours{position:static !important; transform:none !important; max-height:none !important; overflow:visible !important; background:#fff !important; border:none !important; padding:0 !important;}
+    #hours{position:static !important; transform:none !important; max-height:none !important; min-height:0 !important; overflow:visible !important; background:#fff !important; border:none !important; padding:0 !important;}
     #hours > *:not(#hr-body), #hr-body > *:not(#sheet-print){display:none !important;}
     .paperwrap{box-shadow:none; padding:0; border-radius:0;}
   }
@@ -1615,8 +1642,8 @@ function quickLog(jobId){
 }
 
 // ---------- the Hours page ----------
-let hoursView = 'main', hoursWeek = 0, hoursEditing = null, hoursSheet = null, logDraft = null, jobDraft = null;
-function openHours(){ hoursView = 'main'; renderHours(); openSheet('hours'); $('hours').scrollTop = 0; }
+let hoursView = 'main', hoursTab = 'week', hoursWeek = 0, hoursEditing = null, hoursSheet = null, logDraft = null, jobDraft = null;
+function openHours(){ hoursView = 'main'; hoursTab = 'week'; renderHours(); openSheet('hours'); $('hours').scrollTop = 0; }
 function hoursGo(view){ hoursView = view; renderHours(); $('hours').scrollTop = 0; }
 function renderHours(){
   const body = $('hr-body');
@@ -1631,62 +1658,76 @@ function renderHours(){
     $('hr-addjob').onclick = ()=>{ feel('tap'); jobNew(); };
     return;
   }
-  // the week
-  const ws = weekStartMon(new Date()); ws.setDate(ws.getDate() + hoursWeek*7);
-  const days = Array.from({length:7}, (_,i)=>{ const d = new Date(ws); d.setDate(d.getDate()+i); return ymd(d); });
-  const wkShifts = shifts.filter(s=> s.date >= days[0] && s.date <= days[6]);
-  const wkMins = wkShifts.reduce((a,s)=>a+shiftMins(s),0);
-  const wkPay = wkShifts.reduce((a,s)=>{ const j = jobOf(s.job); return a + (j ? payFor(shiftMins(s), j.rate) : 0); },0);
-  const label = hoursWeek === 0 ? 'This week' : hoursWeek === -1 ? 'Last week' : 'w/c '+dayShort(days[0]);
-  let h =
-    '<div class="wk-nav"><button class="ibtn" id="wk-prev" aria-label="Previous week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>'+
-    '<div class="wk-l"><b>'+label+'</b><span>'+(wkMins ? hmTxt(wkMins)+(wkPay ? ' · '+money(wkPay) : '') : 'Nothing logged')+'</span></div>'+
-    '<button class="ibtn" id="wk-next" aria-label="Next week"'+(hoursWeek >= 0 ? ' disabled' : '')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button></div>'+
-    '<div class="wk">'+days.map(d=>{
-      const ds = shifts.filter(s=>s.date===d); const m = ds.reduce((a,s)=>a+shiftMins(s),0);
-      const jc = [...new Set(ds.map(s=>s.job))].map(id=> (jobOf(id)||{}).c || '#888');
-      return '<button class="wk-d'+(d===today()?' now':'')+(m?'':' off')+'" data-wkday="'+d+'"><small>'+DAYS[parseYMD(d).getDay()].slice(0,3)+'</small>'+
-        '<b>'+(m ? String(Math.round(m/60*100)/100) : '–')+'</b><span class="wk-bars">'+jc.map(c=>'<i style="background:'+c+'"></i>').join('')+'</span></button>';
-    }).join('')+'</div>'+
-    '<button class="btn" id="hr-log">+ Log hours</button>';
-  // each job: what has not been sent yet
-  jobs.filter(j=>!j.archived || unsentOf(j.id).length).forEach(j=>{
-    const un = unsentOf(j.id);
-    const mins = un.reduce((a,s)=>a+shiftMins(s),0);
-    const pay = un.reduce((a,s)=>a+payFor(shiftMins(s), j.rate),0);
-    h += '<div class="lab" style="display:flex;align-items:center;gap:8px;"><span class="sw" style="width:8px;height:8px;border-radius:50%;background:'+j.c+'"></span>'+esc(j.name)+' · not sent yet</div>'+
-      '<div class="card hr-card">'+
-      (un.length
-        ? '<div class="hr-tot"><b>'+hmTxt(mins)+'</b>'+(Number(j.rate) ? '<span>'+money(pay)+'</span>' : '')+'</div>'+
-          '<div class="hr-sub">'+un.length+' shift'+(un.length===1?'':'s')+' · since '+dayShort(un[0].date)+'</div>'+
-          un.slice().reverse().map(s=>shiftRow(s, j)).join('')
-        : '<div class="hr-sub" style="padding:10px 0;">Nothing waiting to be sent.</div>')+
+  const unsentAll = shifts.filter(x=>!x.sent && jobOf(x.job)).length;
+  const TABS = [['week','Week'],['send','To send'],['sent','Sent'],['jobs','Jobs']];
+  let h = '<div class="ht-tabs">'+TABS.map(([k,t])=>'<button class="'+(hoursTab===k?'on':'')+'" data-htab="'+k+'">'+t+
+    (k==='send' && unsentAll ? '<i>'+unsentAll+'</i>' : '')+'</button>').join('')+'</div>';
+  const live = jobs.filter(j=>!j.archived || unsentOf(j.id).length);
+  if(hoursTab === 'week'){
+    const ws = weekStartMon(new Date()); ws.setDate(ws.getDate() + hoursWeek*7);
+    const days = Array.from({length:7}, (_,i)=>{ const d = new Date(ws); d.setDate(d.getDate()+i); return ymd(d); });
+    const wkShifts = shifts.filter(s=> s.date >= days[0] && s.date <= days[6]);
+    const wkMins = wkShifts.reduce((a,s)=>a+shiftMins(s),0);
+    const wkPay = wkShifts.reduce((a,s)=>{ const j = jobOf(s.job); return a + (j ? payFor(shiftMins(s), j.rate) : 0); },0);
+    const label = hoursWeek === 0 ? 'This week' : hoursWeek === -1 ? 'Last week' : 'w/c '+dayShort(days[0]);
+    const dayM = d => shifts.filter(s=>s.date===d).reduce((a,s)=>a+shiftMins(s),0);
+    const top = Math.max(480, ...days.map(dayM));   // 8 hours fills the bar, unless a day is longer
+    h += '<div class="hw-head"><div><small>'+label+'</small><b>'+(wkMins ? hmTxt(wkMins) : '0h')+'</b>'+(wkPay ? '<em>'+money(wkPay)+'</em>' : '')+'</div>'+
+      '<div class="hw-nav"><button class="ibtn" id="wk-prev" aria-label="Previous week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>'+
+      '<button class="ibtn" id="wk-next" aria-label="Next week"'+(hoursWeek >= 0 ? ' disabled' : '')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button></div></div>'+
+      '<div class="hw-chart">'+days.map(d=>{
+        const ds = shifts.filter(s=>s.date===d).sort((a,b)=>toMin(a.start)-toMin(b.start)); const m = dayM(d);
+        return '<button class="hw-day'+(d===today()?' now':'')+'" data-wkday="'+d+'" aria-label="'+DAYS[parseYMD(d).getDay()]+(m ? ', '+hmTxt(m) : '')+'">'+
+          '<b>'+(m ? String(Math.round(m/60*100)/100) : '')+'</b>'+
+          '<span class="hw-col">'+(ds.length ? ds.map(s=>'<i style="height:'+Math.max(6, Math.round(shiftMins(s)/top*96))+'px;background:'+((jobOf(s.job)||{}).c||'#888')+'"></i>').join('') : '<i class="none"></i>')+'</span>'+
+          '<small>'+DAYS[parseYMD(d).getDay()].slice(0,3)+'</small></button>';
+      }).join('')+'</div>'+
+      '<div class="hw-jobs">'+live.map(j=>{
+        const un = unsentOf(j.id); const m = un.reduce((a,s)=>a+shiftMins(s),0);
+        return '<div class="hw-row"><span class="dot" style="background:'+j.c+'"></span>'+
+          '<button class="g" data-gosend="'+j.id+'"><b>'+esc(j.name)+'</b><span>'+(un.length ? hmTxt(m)+' not sent · '+un.length+' shift'+(un.length===1?'':'s') : 'All sent')+'</span></button>'+
+          (un.length ? '<button class="hw-send" data-complete="'+j.id+'">Send</button>' : '')+'</div>';
+      }).join('')+'</div>'+
+      '<button class="btn" id="hr-log">+ Log hours</button>';
+  } else if(hoursTab === 'send'){
+    const withShifts = live.filter(j=>unsentOf(j.id).length);
+    if(!withShifts.length) h += '<div class="ht-empty">Nothing waiting to be sent.</div>';
+    withShifts.forEach(j=>{
+      const un = unsentOf(j.id);
+      const mins = un.reduce((a,s)=>a+shiftMins(s),0);
+      const pay = un.reduce((a,s)=>a+payFor(shiftMins(s), j.rate),0);
+      h += '<div class="card hr-card" style="margin-bottom:12px;"><div class="ht-jobhead"><span class="dot" style="background:'+j.c+'"></span><b>'+esc(j.name)+'</b>'+
+        '<button class="hw-send" data-complete="'+j.id+'">Make '+docName(j)+'</button></div>'+
+        '<div class="hr-tot"><b>'+hmTxt(mins)+'</b>'+(Number(j.rate) ? '<span>'+money(pay)+'</span>' : '')+'</div>'+
+        '<div class="hr-sub">'+un.length+' shift'+(un.length===1?'':'s')+' · since '+dayShort(un[0].date)+'</div>'+
+        un.slice().reverse().map(s=>shiftRow(s, j)).join('')+'</div>';
+    });
+    h += '<button class="btn soft" id="hr-log">+ Log hours</button>';
+  } else if(hoursTab === 'sent'){
+    h += sheets.length
+      ? '<div class="card" style="padding:0 14px;">'+sheets.slice().sort((a,b)=>b.created-a.created).slice(0, 40).map(sh=>
+          '<button class="hr-sent" data-sheet="'+sh.id+'"><b>'+esc(sh.no)+'</b><span>'+esc(sh.job.name)+' · '+esc(periodTxt(sh.from, sh.to))+'</span><em>'+hmTxt(sh.mins)+'</em></button>').join('')+'</div>'
+      : '<div class="ht-empty">Nothing sent yet. Timesheets you make show up here.</div>';
+  } else {
+    h += '<div class="card" style="padding:0 14px;">'+
+      jobs.map(j=>'<button class="hr-job" data-job="'+j.id+'"><span class="sw" style="background:'+j.c+'"></span><b>'+esc(j.name)+'</b><em>'+(isSelf(j)?'Self-employed':'Employed')+(j.archived?' · hidden':'')+'</em></button>').join('')+
       '</div>'+
-      (un.length ? '<button class="btn" data-complete="'+j.id+'">'+ICON.note+'Complete — make '+docName(j)+'</button>' : '');
-  });
-  // sent
-  if(sheets.length){
-    h += '<div class="lab">Sent</div><div class="card" style="padding:0 14px;">'+
-      sheets.slice().sort((a,b)=>b.created-a.created).slice(0, 12).map(sh=>
-        '<button class="hr-sent" data-sheet="'+sh.id+'"><b>'+esc(sh.no)+'</b><span>'+esc(sh.job.name)+' · '+esc(periodTxt(sh.from, sh.to))+'</span><em>'+hmTxt(sh.mins)+'</em></button>').join('')+'</div>';
+      (jobs.length < 6 ? '<button class="btn soft" id="hr-addjob">+ Add a job</button>' : '')+
+      '<button class="btn soft" id="hr-me">Your details for sheets</button>';
   }
-  // jobs + your details
-  h += '<div class="lab">Jobs</div><div class="card" style="padding:0 14px;">'+
-    jobs.map(j=>'<button class="hr-job" data-job="'+j.id+'"><span class="sw" style="background:'+j.c+'"></span><b>'+esc(j.name)+'</b><em>'+(isSelf(j)?'Self-employed':'Employed')+(j.archived?' · hidden':'')+'</em></button>').join('')+
-    '</div>'+
-    (jobs.length < 6 ? '<button class="btn soft" id="hr-addjob">+ Add a job</button>' : '')+
-    '<button class="btn soft" id="hr-me">Your details for sheets</button>';
   body.innerHTML = h;
-  $('wk-prev').onclick = ()=>{ feel('tap'); hoursWeek--; renderHours(); };
-  $('wk-next').onclick = ()=>{ if(hoursWeek < 0){ feel('tap'); hoursWeek++; renderHours(); } };
-  $('hr-log').onclick = ()=>{ feel('tap'); logNew(null, today()); };
+  body.querySelectorAll('[data-htab]').forEach(b=> b.onclick = ()=>{ if(hoursTab === b.dataset.htab) return; feel('tap'); hoursTab = b.dataset.htab; renderHours(); $('hours').scrollTop = 0; });
+  body.querySelectorAll('[data-gosend]').forEach(b=> b.onclick = ()=>{ feel('tap'); hoursTab = 'send'; renderHours(); $('hours').scrollTop = 0; });
+  if($('wk-prev')) $('wk-prev').onclick = ()=>{ feel('tap'); hoursWeek--; renderHours(); };
+  if($('wk-next')) $('wk-next').onclick = ()=>{ if(hoursWeek < 0){ feel('tap'); hoursWeek++; renderHours(); } };
+  if($('hr-log')) $('hr-log').onclick = ()=>{ feel('tap'); logNew(null, today()); };
   body.querySelectorAll('[data-wkday]').forEach(b=> b.onclick = ()=>{ feel('tap'); logNew(null, b.dataset.wkday); });
   body.querySelectorAll('[data-shift]').forEach(b=> b.onclick = ()=>{ feel('tap'); logEdit(b.dataset.shift); });
   body.querySelectorAll('[data-complete]').forEach(b=> b.onclick = ()=> completeJob(b.dataset.complete));
   body.querySelectorAll('[data-sheet]').forEach(b=> b.onclick = ()=>{ feel('tap'); hoursSheet = b.dataset.sheet; hoursGo('sheet'); });
   body.querySelectorAll('[data-job]').forEach(b=> b.onclick = ()=>{ feel('tap'); jobEdit(b.dataset.job); });
   if($('hr-addjob')) $('hr-addjob').onclick = ()=>{ feel('tap'); jobNew(); };
-  $('hr-me').onclick = ()=>{ feel('tap'); hoursGo('me'); };
+  if($('hr-me')) $('hr-me').onclick = ()=>{ feel('tap'); hoursGo('me'); };
 }
 function shiftRow(s, j){
   const d = parseYMD(s.date); const m = shiftMins(s);
@@ -1818,14 +1859,14 @@ function renderJob(body){
     if((d.start && !d.end) || (!d.start && d.end)){ feel('error'); toast('Set both usual start and finish, or neither'); return; }
     if(d.start && d.end && d.start === d.end){ feel('error'); toast('Usual start and finish are the same'); return; }
     if(d.id) jobs = jobs.map(j=> j.id===d.id ? {...d} : j); else jobs.push({...d, id:uid()});
-    saveHours(); feel('add'); toast(d.id ? 'Job saved' : d.name+' added'); paintTodayWork(); hoursGo('main');
+    saveHours(); feel('add'); toast(d.id ? 'Job saved' : d.name+' added'); paintTodayWork(); hoursTab = 'jobs'; hoursGo('main');
   };
-  if($('jb-hide')) $('jb-hide').onclick = ()=>{ read(); d.archived = !d.archived; jobs = jobs.map(j=> j.id===d.id ? {...j, archived:d.archived} : j); saveHours(); feel('select'); paintTodayWork(); hoursGo('main'); };
+  if($('jb-hide')) $('jb-hide').onclick = ()=>{ read(); d.archived = !d.archived; jobs = jobs.map(j=> j.id===d.id ? {...j, archived:d.archived} : j); saveHours(); feel('select'); paintTodayWork(); hoursTab = 'jobs'; hoursGo('main'); };
   if($('jb-del')) $('jb-del').onclick = async ()=>{
     const n = shifts.filter(s=>s.job===d.id).length;
     if(!(await ask('Delete '+(d.name||'this job')+'?', n ? 'Its '+n+' logged shift'+(n===1?'':'s')+' go too. Sent sheets stay in your history.' : 'Nothing is logged for it.', 'Delete', true))) return;
     jobs = jobs.filter(j=>j.id!==d.id); shifts = shifts.filter(s=>s.job!==d.id);
-    saveHours(); feel('remove'); paintTodayWork(); hoursGo('main');
+    saveHours(); feel('remove'); paintTodayWork(); hoursTab = 'jobs'; hoursGo('main');
   };
 }
 

@@ -12,11 +12,14 @@ Read this first in any chat about Jot. The full handover is imported below.
   in the same commit.
 - Rolling back = revert the last commit. Every version stays in the history.
 - This repo is **public**. Never commit keys, backups or personal notes.
+- Bailey only wants a short summary of changes + a visual when there is one.
+  Don't send zips or handover files. Write a handover only when he asks or the
+  chat is getting full.
 
 ## Mockups and demos: one page per app
 - All design ideas, mockups and demos for Jot go on ONE artifact titled "Jot designs".
   Update that same page every time (republish to its link). Never make a new one.
-- Its link: (none yet — create it the first time a mockup is needed, then write the link here)
+- Its link: https://claude.ai/artifact/YEttgp2afLfS6AgCAdF1aa (slug fcfbf24f-62bd-4ddb-85f6-d231a86f3beb)
 - Old ideas get replaced on the page, not kept. Decisions go in the handover instead.
 
 @_source/JOT_handover.md

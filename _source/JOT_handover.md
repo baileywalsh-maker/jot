@@ -17,7 +17,7 @@ Add file → Upload files → drag everything in → Commit (see `UPDATING.md`).
 No commands, no build. Data lives on the phone, so updating never touches it.
 Moving to a new address = back up on the old one, restore on the new one.
 
-**Current version: v35.** The version lives on line 1 of `sw.js` as
+**Current version: v36.** The version lives on line 1 of `sw.js` as
 `const CACHE = 'jot-vNN'`.
 
 I also have other apps built the same way (COACH, Ledger). Same rules apply.
@@ -129,8 +129,11 @@ Self-employed, hourly rate, usual start/finish/break, what the work is called,
 employer name, optional staff no. and send-to email). Home shows "Today's work"
 with a one-tap **Log it** for each job's usual shift (Undo); Log hours page for
 anything else (day, start, finish, break, live hours + pay; past-midnight shifts
-count). Hours page: week strip, each job's shifts not sent yet, **Complete — make
-timesheet/invoice**, Sent history, Jobs, Your details.
+count). Hours page (v36) has four tabs: **Week** (total hours +
+pay, a bar chart of the week coloured by job — tap a day to log it — and one row
+per job with a **Send** button), **To send** (each job's unsent shifts + Make
+timesheet/invoice; the tab shows a count), **Sent** (history), **Jobs** (jobs,
+Add a job, Your details). Opens on Week every time; Back from a job returns to Jobs.
 - Employed → **Timesheet** (TS-0001…): date, start, finish, break, hours, total
   hours. Never the rate. Per-job switches: Show £ amounts (pay per day + total pay
   before tax), Show payment details (bank). Both off by default.

@@ -637,6 +637,22 @@ const SUITES = {
     await q(() => { hoursGo('main'); });
     // week strip
     ok(await q(t => { const b = document.querySelector('[data-wkday="' + t + '"] b'); return b && b.textContent === '4'; }, today), 'This week shows today\'s 4 hours');
+    // tabs: Week / To send / Sent / Jobs
+    ok(await q(() => hoursTab === 'week' && document.querySelectorAll('.ht-tabs button').length === 4 && document.querySelectorAll('.hw-day').length === 7), 'Hours opens on the Week tab with a 7-day chart');
+    ok(await q(() => document.querySelector('.ht-tabs [data-htab="send"] i').textContent === '2'), '"To send" tab shows how many shifts are waiting (2)');
+    ok(await q(t => { const c = document.querySelector('[data-wkday="' + t + '"] .hw-col i'); return c && c.style.height === '48px'; }, today), 'Bar height matches hours (4h of an 8h day = half height)');
+    ok(await q(() => !document.querySelector('.hr-row') && !document.getElementById('hr-me') && !document.getElementById('hr-addjob')), 'Week tab is tidy: no shift list, no job settings');
+    await q(() => document.querySelector('[data-gosend]').click()); await pg.waitForTimeout(150);
+    ok(await q(() => hoursTab === 'send' && document.querySelectorAll('.hr-row').length === 2 && /Make timesheet/.test(document.getElementById('hr-body').textContent)), 'Tapping a job opens "To send" with its shifts');
+    await q(() => document.querySelector('[data-htab="sent"]').click()); await pg.waitForTimeout(150);
+    ok(await q(() => /Nothing sent yet/.test(document.getElementById('hr-body').textContent)), 'Sent tab, empty: says nothing sent yet');
+    await q(() => document.querySelector('[data-htab="jobs"]').click()); await pg.waitForTimeout(150);
+    ok(await q(() => document.querySelectorAll('.hr-job').length === 2 && !!document.getElementById('hr-me')), 'Jobs tab lists jobs and Your details');
+    await q(() => document.querySelector('[data-job]').click()); await pg.waitForTimeout(150);
+    await q(() => document.getElementById('back-hours').click()); await pg.waitForTimeout(150);
+    ok(await q(() => hoursView === 'main' && hoursTab === 'jobs'), 'Back from a job returns to the Jobs tab');
+    await q(() => { closeSheet('hours'); openHours(); }); await pg.waitForTimeout(300);
+    ok(await q(() => hoursTab === 'week'), 'Opening Hours again starts on Week');
     // complete without a name: asks for your details first
     await q(() => document.querySelector('[data-complete]').click()); await pg.waitForTimeout(200);
     ok(await q(() => hoursView === 'me'), 'Making a timesheet asks for your name first');
