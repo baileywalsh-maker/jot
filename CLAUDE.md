@@ -2,6 +2,16 @@
 
 Read this first in any chat about Jot. The full handover is imported below.
 
+## Before ANY change — Muse edits this app too
+- Bailey uses Muse (his other assistant) to run Jot day to day, and Muse can also
+  change the app code in this repo. Claude handles app changes, but must never
+  assume the code is where it left it.
+- So before every change: `git pull` this repo and read the last few commits
+  (`git log`). Build on what's in `main`, never on a zip, an upload or an old copy.
+- If the version on line 1 of `sw.js` is newer than you expected, or a commit isn't
+  yours, read what changed first and keep it. Mention it in one line to Bailey.
+- Pull again right before pushing, so a change Muse made in the meantime isn't lost.
+
 ## How changes ship now (replaces "upload the zip" in the handover)
 - Claude edits the files in this repo and pushes straight to `main`.
   GitHub Pages updates in about a minute. Bailey does nothing on the laptop.
