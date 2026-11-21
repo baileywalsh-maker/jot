@@ -17,7 +17,7 @@ Add file → Upload files → drag everything in → Commit (see `UPDATING.md`).
 No commands, no build. Data lives on the phone, so updating never touches it.
 Moving to a new address = back up on the old one, restore on the new one.
 
-**Current version: v36.** The version lives on line 1 of `sw.js` as
+**Current version: v37.** The version lives on line 1 of `sw.js` as
 `const CACHE = 'jot-vNN'`.
 
 I also have other apps built the same way (COACH, Ledger). Same rules apply.
@@ -126,8 +126,11 @@ Calendar".
 
 **Hours (the "Tally" idea, built into Jot — there is no separate Tally app).** Bottom bar → Hours. Add jobs (name, Employed or
 Self-employed, hourly rate, usual start/finish/break, what the work is called,
-employer name, optional staff no. and send-to email). Home shows "Today's work"
-with a one-tap **Log it** for each job's usual shift (Undo); Log hours page for
+employer name, optional staff no. and send-to email). **Notes and work are
+separate (v37):** home is notes only, with the big category buttons. The Hours
+button in the bottom bar gets an amber dot while a job with usual hours has
+nothing logged today. The Week tab opens with **Today**: a one-tap **Log it** for
+each job's usual shift (Undo). Log hours page for
 anything else (day, start, finish, break, live hours + pay; past-midnight shifts
 count). Hours page (v36) has four tabs: **Week** (total hours +
 pay, a bar chart of the week coloured by job — tap a day to log it — and one row
@@ -177,8 +180,8 @@ it (tests folder included, never `node_modules` or `.netlify`).
 - iPhone expects every buzz to show a notification — `sw.js` always shows
   something, even "Jot reminder" for a note that's gone.
 - Never send note text to the helper; ids and times only.
-- With jobs on home, buttons go compact and Up next shows one item on smaller
-  phones; if it still can't fit above the bottom bar it steps aside (still in Lists).
+- Work on home once squeezed the category buttons and cluttered it. Since v37 work
+  lives only in Hours (dot on the Hours button) — don't put it back on home.
 - A week-strip number once read 7.3 for 7h 15m — show hours exactly (7.25).
 - Face ID (the locked section's passkey) only works on the web address it was set
   up on. Jot now remembers the address and, after a move, switches Face ID off with

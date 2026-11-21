@@ -744,6 +744,9 @@
     background:var(--late); color:#fff; font-size:10.5px; font-weight:800; display:none; align-items:center; justify-content:center;}
   .dock .badge.on{display:flex;}
   .dock button.on .badge{display:none;}
+  .dock .hdot{display:none; position:absolute; top:9px; right:13px; width:9px; height:9px; border-radius:50%; background:#e0a458; box-shadow:0 0 0 2px var(--card);}
+  .dock .hdot.on{display:block;} .dock button.on .hdot{display:none;}
+  #hours .todaywork{margin-bottom:16px;}
 
   /* lists header */
   .back{background:var(--card); border:1px solid var(--line); border-radius:14px; height:40px;
@@ -996,7 +999,7 @@
 <nav class="dock" id="dock" aria-label="Main">
   <button id="d-write" aria-label="Write"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg><span class="dl">Write</span></button>
   <button id="d-lists" aria-label="Lists"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/></svg><span class="dl">Lists</span><span class="badge" id="d-badge"></span></button>
-  <button id="d-hours" aria-label="Hours"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span class="dl">Hours</span></button>
+  <button id="d-hours" aria-label="Hours"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span class="dl">Hours</span><span class="hdot" id="d-hdot"></span></button>
   <button id="d-search" aria-label="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span class="dl">Search</span></button>
 </nav>
 
@@ -1590,14 +1593,21 @@ const loggedToday = jobId => shifts.filter(s=>s.job===jobId && s.date===today())
 const isSelf = j => j && j.kind === 'self';
 const docName = j => isSelf(j) ? 'invoice' : 'timesheet';
 
-// ---------- home: today's work ----------
+// ---------- today's work: lives on the Hours page (v37) ----------
+// Home is notes only. The Hours button gets a dot while a job with usual
+// hours has nothing logged today; the Week tab opens with one-tap Log it.
+const workWaiting = () => jobs.some(j=> !j.archived && j.start && j.end && !loggedToday(j.id).length);
 function paintTodayWork(){
-  const box = $('todaywork'); if(!box) return;
-  const list = jobs.filter(j=>!j.archived).slice(0, 3);
-  $('home').classList.toggle('haswork', list.length > 0);
-  if(!list.length){ box.innerHTML = ''; box.classList.remove('on'); $('home').classList.remove('tight'); return; }
-  box.classList.add('on');
-  box.innerHTML = '<div class="tw-h">Today\'s work</div>' + list.map(j=>{
+  const box = $('todaywork');
+  if(box){ box.innerHTML = ''; box.classList.remove('on'); }
+  const home = $('home'); if(home) home.classList.remove('haswork', 'tight');
+  const dot = $('d-hdot'); if(dot) dot.classList.toggle('on', workWaiting());
+  fitHome();
+}
+function todayWorkHTML(){
+  const list = jobs.filter(j=>!j.archived);
+  if(!list.length) return '';
+  return '<div class="todaywork on" id="hr-today"><div class="tw-h">Today</div>' + list.map(j=>{
     const done = loggedToday(j.id);
     const usual = j.start && j.end;
     const um = usual ? shiftMins({start:j.start, end:j.end, brk:j.brk||0}) : 0;
@@ -1608,15 +1618,13 @@ function paintTodayWork(){
       '<button class="tw-g" data-twopen="'+j.id+'"><b>'+esc(j.name)+'</b><span>'+esc(sub)+'</span></button>'+
       (done.length ? '<span class="tw-ok">'+ICON.check+'</span>'
                    : '<button class="tw-go" data-twlog="'+j.id+'">Log it</button>')+'</div>';
-  }).join('');
-  box.querySelectorAll('[data-twlog]').forEach(b=>{
-    b.addEventListener('pointerdown', e=>{ if(document.activeElement === hcap) e.preventDefault(); });
-    b.onclick = ()=> quickLog(b.dataset.twlog);
-  });
-  fitHome();
+  }).join('') + '</div>';
+}
+function wireTodayWork(box){
+  box.querySelectorAll('[data-twlog]').forEach(b=> b.onclick = ()=> quickLog(b.dataset.twlog));
   box.querySelectorAll('[data-twopen]').forEach(b=> b.onclick = ()=>{
-    feel('tap'); const j = jobOf(b.dataset.twopen); const done = loggedToday(j.id);
-    openHours(); if(done.length) logEdit(done[done.length-1].id); else logNew(j.id, today());
+    feel('tap'); const j = jobOf(b.dataset.twopen); if(!j) return; const done = loggedToday(j.id);
+    if(done.length) logEdit(done[done.length-1].id); else logNew(j.id, today());
   });
 }
 // If everything can't fit above the bottom bar, Up next steps aside (it's
@@ -1672,6 +1680,7 @@ function renderHours(){
     const label = hoursWeek === 0 ? 'This week' : hoursWeek === -1 ? 'Last week' : 'w/c '+dayShort(days[0]);
     const dayM = d => shifts.filter(s=>s.date===d).reduce((a,s)=>a+shiftMins(s),0);
     const top = Math.max(480, ...days.map(dayM));   // 8 hours fills the bar, unless a day is longer
+    if(hoursWeek === 0) h += todayWorkHTML();
     h += '<div class="hw-head"><div><small>'+label+'</small><b>'+(wkMins ? hmTxt(wkMins) : '0h')+'</b>'+(wkPay ? '<em>'+money(wkPay)+'</em>' : '')+'</div>'+
       '<div class="hw-nav"><button class="ibtn" id="wk-prev" aria-label="Previous week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>'+
       '<button class="ibtn" id="wk-next" aria-label="Next week"'+(hoursWeek >= 0 ? ' disabled' : '')+'><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button></div></div>'+
@@ -1716,6 +1725,7 @@ function renderHours(){
       '<button class="btn soft" id="hr-me">Your details for sheets</button>';
   }
   body.innerHTML = h;
+  wireTodayWork(body);
   body.querySelectorAll('[data-htab]').forEach(b=> b.onclick = ()=>{ if(hoursTab === b.dataset.htab) return; feel('tap'); hoursTab = b.dataset.htab; renderHours(); $('hours').scrollTop = 0; });
   body.querySelectorAll('[data-gosend]').forEach(b=> b.onclick = ()=>{ feel('tap'); hoursTab = 'send'; renderHours(); $('hours').scrollTop = 0; });
   if($('wk-prev')) $('wk-prev').onclick = ()=>{ feel('tap'); hoursWeek--; renderHours(); };
@@ -3005,8 +3015,7 @@ function upNext(){
   const t0 = today();
   const dated = notes.filter(n=>!n.done && n.due && n.type !== 'idea' && n.type !== 'question')
     .sort((a,b)=> (a.due < b.due ? -1 : a.due > b.due ? 1 : String(a.dueTime||'').localeCompare(String(b.dueTime||''))));
-  // With jobs on home there's less room: one item on smaller phones.
-  const room = (typeof jobs !== 'undefined' && jobs.some(j=>!j.archived) && window.innerHeight < 900) ? 1 : 2;
+  const room = 2;
   const pick = dated.slice(0, room);
   if(pick.length < room){
     notes.filter(n=>!n.done && !n.due && TYPES[n.type] && TYPES[n.type].tick && n.type !== 'remember')

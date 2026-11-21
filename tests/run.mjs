@@ -612,12 +612,22 @@ const SUITES = {
     await addJob('Job 2', 'employed', '13.45', '17:30', '20:30', () => { document.getElementById('jb-email').value = 'boss@example.co.uk'; });
     ok(await q(() => jobs.length === 2 && jobs[0].kind === 'employed' && jobs[0].rate === 15 && jobs[1].rate === 13.45 && !jobs[0].showMoney && !jobs[0].showPay), 'Two jobs added: employed, rates saved, £ and payment off by default');
     await q(() => closeSheet('hours')); await pg.waitForTimeout(400);
-    ok(await q(() => document.querySelectorAll('#todaywork .tw-row').length === 2 && document.querySelector('#todaywork .tw-g span').textContent === 'Usual 9:00–13:00 · 4h · £60.00'), 'Home shows "Today\'s work" with usual hours and pay');
+    ok(await q(() => !document.getElementById('todaywork').classList.contains('on') && !document.querySelector('#home .tw-row') && !document.getElementById('home').classList.contains('haswork')), 'Home is notes only: no work on it');
+    ok(await q(() => document.getElementById('d-hdot').classList.contains('on')), 'Hours button shows a dot while today isn\'t logged');
+    await q(() => document.getElementById('d-hours').click()); await pg.waitForTimeout(400);
+    ok(await q(() => document.querySelectorAll('#hr-today .tw-row').length === 2 && document.querySelector('#hr-today .tw-g span').textContent === 'Usual 9:00–13:00 · 4h · £60.00'), 'Hours opens with "Today": each job\'s usual hours and pay');
     await q(() => document.querySelector('[data-twlog]').click()); await pg.waitForTimeout(300);
-    ok(await q(t => shifts.length === 1 && shifts[0].date === t && shifts[0].start === '09:00' && document.querySelector('.tw-row.done') !== null, today), '"Log it" saves today\'s usual shift with the right date');
+    ok(await q(t => shifts.length === 1 && shifts[0].date === t && shifts[0].start === '09:00' && document.querySelector('#hr-today .tw-row.done') !== null, today), '"Log it" saves today\'s usual shift with the right date');
     await q(() => document.getElementById('toast-b').click()); await pg.waitForTimeout(200);
-    ok(await q(() => shifts.length === 0), 'Undo removes it');
+    ok(await q(() => shifts.length === 0 && document.querySelectorAll('#hr-today [data-twlog]').length === 2), 'Undo removes it');
     await q(() => document.querySelector('[data-twlog]').click()); await pg.waitForTimeout(300);
+    ok(await q(() => document.getElementById('d-hdot').classList.contains('on')), 'Dot stays while the other job isn\'t logged');
+    await q(() => document.querySelector('[data-twlog]').click()); await pg.waitForTimeout(300);
+    ok(await q(() => !document.getElementById('d-hdot').classList.contains('on')), 'Dot goes once every job is logged today');
+    await q(() => { shifts = shifts.filter(s => s.job === jobs[0].id); saveHours(); paintTodayWork(); renderHours(); });
+    await q(() => { hoursWeek = -1; renderHours(); });
+    ok(await q(() => !document.getElementById('hr-today')), 'Last week: no "Today" section');
+    await q(() => { hoursWeek = 0; renderHours(); });
     // log by hand: yesterday, 9:00–13:30, 15 min break
     await q(() => openHours()); await pg.waitForTimeout(300);
     await q(() => document.getElementById('hr-log').click()); await pg.waitForTimeout(150);
@@ -710,8 +720,8 @@ const SUITES = {
     for (const [name, w, h, ins] of [['iPhone SE', 375, 667, ['20px', '0px']], ['iPhone mini', 375, 812, ['47px', '34px']], ['iPhone 13/14', 390, 844, ['47px', '34px']], ['Pro Max', 430, 932, ['47px', '34px']]]) {
       const f = await open({ w, h, insets: ins, notes: [{ id: 'a', text: 'Pay council tax', type: 'todo', done: false, ts: 1, due: dayOff(-3) }], prefs: { lastBackup: today } });
       await f.q(j => { localStorage.setItem('jot:jobs', JSON.stringify(j)); }, two); await f.pg.reload(); await f.pg.waitForTimeout(500);
-      const r = await f.q(() => ({ rows: document.querySelectorAll('#todaywork .tw-row').length, sum: document.getElementById('summary').getBoundingClientRect().bottom, dock: document.getElementById('dock').getBoundingClientRect().top, wide: document.documentElement.scrollWidth <= innerWidth }));
-      ok(r.rows === 2 && r.wide && (name === 'iPhone SE' || r.sum <= r.dock), name + ' with 2 jobs: fits' + (name === 'iPhone SE' ? ' (scrolls a little on the smallest phone)' : ', Up next clear of the bottom bar'));
+      const r = await f.q(() => ({ rows: document.querySelectorAll('#home .tbtn').length >= 5 && !document.getElementById('home').classList.contains('haswork') ? 2 : 0, ups: document.querySelectorAll('#sum-t .ur').length, sum: document.getElementById('summary').getBoundingClientRect().bottom, dock: document.getElementById('dock').getBoundingClientRect().top, wide: document.documentElement.scrollWidth <= innerWidth }));
+      ok(r.rows === 2 && r.ups >= 1 && r.wide && (name === 'iPhone SE' || r.sum <= r.dock), name + ' with 2 jobs: big buttons stay, no work on home' + (name === 'iPhone SE' ? ' (scrolls a little on the smallest phone)' : ', Up next clear of the bottom bar'));
       await f.ctx.close();
     }
   },
