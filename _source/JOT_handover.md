@@ -17,7 +17,7 @@ Add file → Upload files → drag everything in → Commit (see `UPDATING.md`).
 No commands, no build. Data lives on the phone, so updating never touches it.
 Moving to a new address = back up on the old one, restore on the new one.
 
-**Current version: v37.** The version lives on line 1 of `sw.js` as
+**Current version: v38.** The version lives on line 1 of `sw.js` as
 `const CACHE = 'jot-vNN'`.
 
 I also have other apps built the same way (COACH, Ledger). Same rules apply.
@@ -126,7 +126,9 @@ Calendar".
 
 **Hours (the "Tally" idea, built into Jot — there is no separate Tally app).** Bottom bar → Hours. Add jobs (name, Employed or
 Self-employed, hourly rate, usual start/finish/break, what the work is called,
-employer name, optional staff no. and send-to email). **Notes and work are
+employer name, optional staff no. and send-to email). **Hours is a full screen (v38)** like Lists: Back button at the top, bottom menu
+stays on top with Hours lit, no drag-down, no dimmed backdrop. Write/Lists/Search
+in the menu leave Hours; Back returns to where you were. **Notes and work are
 separate (v37):** home is notes only, with the big category buttons. The Hours
 button in the bottom bar gets an amber dot while a job with usual hours has
 nothing logged today. The Week tab opens with **Today**: a one-tap **Log it** for

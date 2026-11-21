@@ -589,7 +589,14 @@
   .wk-d b{display:block; font-family:var(--round); font-size:16px; margin-top:3px; font-variant-numeric:tabular-nums;}
   .wk-d.off b{color:var(--text3);} .wk-d.now{border-color:var(--cream);}
   .wk-bars{display:flex; gap:2px; justify-content:center; margin-top:5px; height:4px;} .wk-bars i{width:12px; border-radius:2px;}
-  #hours{min-height:calc(100dvh - env(safe-area-inset-top) - 18px);}
+  /* v38: Hours is a full screen, not a pop-up. The bottom menu stays on top of it. */
+  #hours.sheet{top:0; bottom:0; max-width:none; max-height:none; height:100%; height:100dvh; border:none; border-radius:0;
+    background:var(--bg); z-index:35; transform:none; opacity:0; visibility:hidden; transition:opacity .18s, visibility 0s .18s;
+    padding:env(safe-area-inset-top) 18px calc(110px + env(safe-area-inset-bottom));}
+  #hours.sheet > *{max-width:560px; margin-left:auto; margin-right:auto;}
+  #hours.sheet.on{opacity:1; visibility:visible; transition:opacity .18s; animation:slidein .32s var(--ease);}
+  #hours .grab{background:var(--bg); touch-action:auto;} #hours .grab .bar{display:none;}
+  #s-hours{display:none !important;}
   .ht-tabs{display:flex; background:var(--card); border-radius:13px; padding:3px; margin:2px 0 16px;}
   .ht-tabs button{flex:1; background:none; border:none; color:var(--text3); font:inherit; font-size:14px; font-weight:700; padding:9px 0; border-radius:10px; display:flex; align-items:center; justify-content:center; gap:5px;}
   .ht-tabs button.on{background:var(--card3); color:var(--text);}
@@ -647,7 +654,7 @@
   @media print{
     body{background:#fff !important; padding:0 !important;}
     body > *:not(#hours){display:none !important;}
-    #hours{position:static !important; transform:none !important; max-height:none !important; min-height:0 !important; overflow:visible !important; background:#fff !important; border:none !important; padding:0 !important;}
+    #hours{position:static !important; transform:none !important; max-height:none !important; min-height:0 !important; height:auto !important; opacity:1 !important; visibility:visible !important; animation:none !important; overflow:visible !important; background:#fff !important; border:none !important; padding:0 !important;}
     #hours > *:not(#hr-body), #hr-body > *:not(#sheet-print){display:none !important;}
     .paperwrap{box-shadow:none; padding:0; border-radius:0;}
   }
@@ -2703,10 +2710,7 @@ function render(){
   $('lt-h').textContent = (searching && query) ? 'Search' : (tab === 'all' ? 'All lists' : typeName(tab));
   { const c = tab === 'all' ? notes.filter(isOpen).length : notes.filter(n=>n.type===tab && isOpen(n)).length;
     $('lt-n').textContent = c ? c+' open' : ''; }
-  const inL = document.body.classList.contains('in-lists');
-  $('d-write').classList.toggle('on', !inL);
-  $('d-lists').classList.toggle('on', inL && !searching);
-  $('d-search').classList.toggle('on', inL && searching);
+  dockState();
   $('cap').placeholder = (tab !== 'all' && TYPES[tab]) ? 'Add to '+typeName(tab)+'…' : "What's on your mind?";
   paintTypes(); paintTabs(); paintAgain(); paintKindBar();
   $('search').classList.toggle('on', searching);
@@ -4115,10 +4119,12 @@ function openSheet(id){
   sheetFrom[id] = null;
   $(id).classList.add('on'); $('s-'+id).classList.add('on');
   $(id).scrollTop = 0; sfx('open');
+  if(id === 'hours'){ document.body.classList.add('in-hours'); dockState(); }
 }
 function closeSheet(id){
   $(id).classList.remove('on'); $('s-'+id).classList.remove('on');
   $(id).style.transform = '';
+  if(id === 'hours'){ document.body.classList.remove('in-hours'); dockState(); }
 }
 // Which sheet a sheet was opened from, so Back returns there (e.g. Guide -> Settings).
 const sheetFrom = {};
@@ -4153,6 +4159,7 @@ function sheetBack(id){
   grab.style.position = 'sticky';
   grab.classList.add('hasback');
   grab.insertBefore(x, grab.firstChild);
+  if(id === 'hours') return;   // a full screen: Back button and bottom menu only, no drag-down
   let y0 = 0, dy = 0, dragging = false;
   grab.addEventListener('touchstart', e=>{ y0 = e.touches[0].clientY; dy = 0; dragging = true; sh.classList.add('drag'); }, {passive:true});
   grab.addEventListener('touchmove', e=>{
@@ -5013,19 +5020,36 @@ $('b-search').onclick = ()=>{
 $('q').addEventListener('input', e=>{ query = e.target.value.trim(); render(); });
 
 // ---------- bottom dock ----------
+function inHours(){ return document.body.classList.contains('in-hours'); }
+function dockState(){
+  const inL = document.body.classList.contains('in-lists'), inH = inHours();
+  $('d-write').classList.toggle('on', !inL && !inH);
+  $('d-lists').classList.toggle('on', inL && !searching && !inH);
+  $('d-search').classList.toggle('on', inL && searching && !inH);
+  $('d-hours').classList.toggle('on', inH);
+}
+function leaveHours(){ hoursEditing = null; closeSheet('hours'); }
 $('d-write').onclick = ()=>{
   feel('tap');
+  if(inHours()){ leaveHours(); if(document.body.classList.contains('in-lists')) showHome(); return; }
   if(document.body.classList.contains('in-lists')){ try{ history.back(); }catch(e){} setTimeout(()=>{ if(document.body.classList.contains('in-lists')) showHome(); }, 60); }
   else hcap.focus();
 };
 $('d-lists').onclick = ()=>{
   feel('tap');
+  if(inHours()){ leaveHours(); if(!document.body.classList.contains('in-lists')){ showLists('all'); return; } }
   if(!document.body.classList.contains('in-lists')){ showLists('all'); return; }
   if(searching){ searching = false; query = ''; $('q').value = ''; }
   render(); window.scrollTo({top:0, behavior:'smooth'});
 };
-$('d-hours').onclick = ()=>{ feel('tap'); openHours(); };
+$('d-hours').onclick = ()=>{
+  feel('tap');
+  if(!inHours()){ openHours(); return; }
+  if(hoursView !== 'main'){ hoursEditing = null; hoursGo('main'); }
+  else $('hours').scrollTo({top:0, behavior:'smooth'});
+};
 $('d-search').onclick = ()=>{
+  if(inHours()) leaveHours();
   if(!document.body.classList.contains('in-lists')){ $('h-search').click(); return; }
   if(!searching) $('b-search').click(); else { feel('tap'); $('q').focus(); }
 };

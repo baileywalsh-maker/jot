@@ -614,7 +614,11 @@ const SUITES = {
     await q(() => closeSheet('hours')); await pg.waitForTimeout(400);
     ok(await q(() => !document.getElementById('todaywork').classList.contains('on') && !document.querySelector('#home .tw-row') && !document.getElementById('home').classList.contains('haswork')), 'Home is notes only: no work on it');
     ok(await q(() => document.getElementById('d-hdot').classList.contains('on')), 'Hours button shows a dot while today isn\'t logged');
-    await q(() => document.getElementById('d-hours').click()); await pg.waitForTimeout(400);
+    await q(() => document.getElementById('d-hours').click()); await pg.waitForTimeout(500);
+    ok(await q(() => { const r = document.getElementById('hours').getBoundingClientRect(); return r.top === 0 && Math.abs(r.height - innerHeight) < 2; }), 'Hours is a full screen, not a pop-up');
+    ok(await q(() => { const d = document.getElementById('dock').getBoundingClientRect(); const el = document.elementFromPoint(d.left + d.width / 2, d.top + d.height / 2); return !!el && !!el.closest('#dock'); }), 'Bottom menu shows on top of Hours');
+    ok(await q(() => document.getElementById('d-hours').classList.contains('on') && !document.getElementById('d-write').classList.contains('on')), 'Hours button is lit while on Hours');
+    ok(await q(() => getComputedStyle(document.querySelector('#hours .grab .bar')).display === 'none' && !!document.getElementById('back-hours') && getComputedStyle(document.getElementById('s-hours')).display === 'none'), 'No drag handle or dimmed backdrop; Back button there');
     ok(await q(() => document.querySelectorAll('#hr-today .tw-row').length === 2 && document.querySelector('#hr-today .tw-g span').textContent === 'Usual 9:00–13:00 · 4h · £60.00'), 'Hours opens with "Today": each job\'s usual hours and pay');
     await q(() => document.querySelector('[data-twlog]').click()); await pg.waitForTimeout(300);
     ok(await q(t => shifts.length === 1 && shifts[0].date === t && shifts[0].start === '09:00' && document.querySelector('#hr-today .tw-row.done') !== null, today), '"Log it" saves today\'s usual shift with the right date');
@@ -628,6 +632,16 @@ const SUITES = {
     await q(() => { hoursWeek = -1; renderHours(); });
     ok(await q(() => !document.getElementById('hr-today')), 'Last week: no "Today" section');
     await q(() => { hoursWeek = 0; renderHours(); });
+    await q(() => document.getElementById('d-write').click()); await pg.waitForTimeout(400);
+    ok(await q(() => !document.getElementById('hours').classList.contains('on') && document.getElementById('d-write').classList.contains('on') && !document.body.classList.contains('in-lists')), 'Write in the bottom menu leaves Hours for home');
+    await q(() => document.getElementById('d-hours').click()); await pg.waitForTimeout(400);
+    await q(() => document.getElementById('d-lists').click()); await pg.waitForTimeout(400);
+    ok(await q(() => !document.getElementById('hours').classList.contains('on') && document.body.classList.contains('in-lists') && document.getElementById('d-lists').classList.contains('on')), 'Lists in the bottom menu leaves Hours for Lists');
+    await q(() => document.getElementById('d-hours').click()); await pg.waitForTimeout(400);
+    ok(await q(() => document.getElementById('hours').classList.contains('on') && document.getElementById('d-hours').classList.contains('on') && !document.getElementById('d-lists').classList.contains('on')), 'Hours opens from Lists too');
+    await q(() => document.getElementById('back-hours').click()); await pg.waitForTimeout(400);
+    ok(await q(() => !document.getElementById('hours').classList.contains('on') && document.body.classList.contains('in-lists') && document.getElementById('d-lists').classList.contains('on')), 'Back from Hours returns to where you were');
+    await q(() => { showHome(); openHours(); }); await pg.waitForTimeout(400);
     // log by hand: yesterday, 9:00–13:30, 15 min break
     await q(() => openHours()); await pg.waitForTimeout(300);
     await q(() => document.getElementById('hr-log').click()); await pg.waitForTimeout(150);
